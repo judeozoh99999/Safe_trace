@@ -34,28 +34,8 @@ class AudioSentinelScreen extends StatelessWidget {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      // Driving image card
-                      Container(
-                        height: 280,
-                        width: double.infinity,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(24),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.08),
-                              blurRadius: 20,
-                              offset: const Offset(0, 8),
-                            )
-                          ],
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(24),
-                          child: Image.asset(
-                            "assets/images/microphone_detect.png",
-                            fit: BoxFit.cover,
-                          ),
-                        ),
-                      ),
+                      // Glassmorphic Microphone Vector Illustration
+                      const GlassmorphicMicrophone(),
                       const SizedBox(height: 32),
 
                       // Feature Red Subheading
@@ -121,6 +101,135 @@ class AudioSentinelScreen extends StatelessWidget {
                 ),
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class GlassmorphicMicrophone extends StatelessWidget {
+  const GlassmorphicMicrophone({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 280,
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9FAFB),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFFE5E7EB), width: 1.5),
+      ),
+      child: Center(
+        child: SizedBox(
+          width: 200,
+          height: 220,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              // 3D Microphone Body (Glass dome)
+              Positioned(
+                top: 20,
+                child: Container(
+                  width: 90,
+                  height: 140,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.85),
+                    borderRadius: BorderRadius.circular(45),
+                    border: Border.all(
+                      color: Colors.white.withOpacity(0.95),
+                      width: 2.0,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF4F46E5).withOpacity(0.06),
+                        blurRadius: 20,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
+                  ),
+                  child: Center(
+                    // Inner Soundwave/Voice waves
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        _buildWaveBar(14, 0.4),
+                        const SizedBox(width: 4),
+                        _buildWaveBar(24, 0.7),
+                        const SizedBox(width: 4),
+                        _buildWaveBar(36, 1.0),
+                        const SizedBox(width: 4),
+                        _buildWaveBar(24, 0.7),
+                        const SizedBox(width: 4),
+                        _buildWaveBar(14, 0.4),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+
+              // Stand Base (Chrome U-shape ring holding the dome)
+              Positioned(
+                top: 90,
+                child: Container(
+                  width: 120,
+                  height: 70,
+                  decoration: BoxDecoration(
+                    borderRadius: const BorderRadius.only(
+                      bottomLeft: Radius.circular(60),
+                      bottomRight: Radius.circular(60),
+                    ),
+                    border: Border(
+                      bottom: BorderSide(color: Colors.grey.shade300, width: 6),
+                      left: BorderSide(color: Colors.grey.shade300, width: 6),
+                      right: BorderSide(color: Colors.grey.shade300, width: 6),
+                    ),
+                  ),
+                ),
+              ),
+
+              // Stand Stem
+              Positioned(
+                top: 160,
+                child: Container(
+                  width: 8,
+                  height: 24,
+                  color: Colors.grey.shade300,
+                ),
+              ),
+
+              // Stand Base circle
+              Positioned(
+                top: 180,
+                child: Container(
+                  width: 70,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWaveBar(double height, double opacity) {
+    return Container(
+      width: 4,
+      height: height,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(2),
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            const Color(0xFF60A5FA).withOpacity(opacity),
+            const Color(0xFF818CF8).withOpacity(opacity),
           ],
         ),
       ),

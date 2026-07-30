@@ -12,12 +12,16 @@ class CustomBottomNavBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bgColor = isDark ? const Color(0xFF131522) : Colors.white;
+    final borderColor = isDark ? const Color(0xFF282B40) : const Color(0xFFE5E7EB);
+
     return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
+      decoration: BoxDecoration(
+        color: bgColor,
         border: Border(
           top: BorderSide(
-            color: Color(0xFFE5E7EB),
+            color: borderColor,
             width: 1.0,
           ),
         ),
@@ -26,7 +30,7 @@ class CustomBottomNavBar extends StatelessWidget {
         currentIndex: currentIndex,
         onTap: onTap,
         type: BottomNavigationBarType.fixed,
-        backgroundColor: Colors.white,
+        backgroundColor: bgColor,
         selectedItemColor: const Color(0xFFEB444E), // Active red color matching mockup
         unselectedItemColor: const Color(0xFF9CA3AF),
         selectedFontSize: 11,

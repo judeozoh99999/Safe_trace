@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_colors.dart';
 import 'onboarding_screen.dart';
+import 'login_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -26,12 +30,18 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
 
     _controller.forward();
 
-    // Navigate to onboarding after 3 seconds
-    Future.delayed(const Duration(seconds: 3), () {
-      if (mounted) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const OnboardingScreen()),
-        );
+    // Navigate after splash animation
+    Future.delayed(const Duration(milliseconds: 2500), () async {
+      if (!mounted) return;
+      final prefs = await SharedPreferences.getInstance();
+      final onboardingCompleted = prefs.getBool('onboarding_completed') ?? false;
+      final user = FirebaseAuth.instance.currentUser;
+
+      if (!mounted) return;
+      if (user != null) {
+        GoRouter.of(context).go('/home');
+      } else {
+        GoRouter.of(context).go(onboardingCompleted ? '/login' : '/onboarding');
       }
     });
   }

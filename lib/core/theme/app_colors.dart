@@ -46,3 +46,12 @@ class AppColors {
     avatarRed,
   ];
 }
+
+extension ThemeColors on BuildContext {
+  bool get isDarkMode => Theme.of(this).brightness == Brightness.dark;
+  Color get scaffoldBg => isDarkMode ? AppColors.backgroundDark : const Color(0xFFF9FAFB);
+  Color get cardBg => isDarkMode ? AppColors.cardDark : Colors.white;
+  Color get border => isDarkMode ? AppColors.dividerDark : const Color(0xFFE5E7EB);
+  Color get textPrimary => isDarkMode ? Colors.white : const Color(0xFF111827);
+  Color get textSecondary => isDarkMode ? AppColors.textDarkSecondary : const Color(0xFF6B7280);
+}

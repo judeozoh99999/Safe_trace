@@ -60,6 +60,13 @@ class AppTheme {
       scaffoldBackgroundColor: AppColors.backgroundDark,
       cardColor: AppColors.cardDark,
       dividerColor: AppColors.dividerDark,
+      appBarTheme: const AppBarTheme(
+        backgroundColor: AppColors.backgroundDark,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        iconTheme: IconThemeData(color: Colors.white),
+        titleTextStyle: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+      ),
       textTheme: GoogleFonts.interTextTheme(
         ThemeData.dark().textTheme.copyWith(
               headlineLarge: const TextStyle(
@@ -143,6 +150,13 @@ class AppTheme {
       scaffoldBackgroundColor: AppColors.backgroundLight,
       cardColor: AppColors.cardLight,
       dividerColor: AppColors.dividerLight,
+      appBarTheme: const AppBarTheme(
+        backgroundColor: AppColors.backgroundLight,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        iconTheme: IconThemeData(color: AppColors.textLightPrimary),
+        titleTextStyle: TextStyle(color: AppColors.textLightPrimary, fontSize: 18, fontWeight: FontWeight.bold),
+      ),
       textTheme: GoogleFonts.interTextTheme(
         ThemeData.light().textTheme.copyWith(
               headlineLarge: const TextStyle(

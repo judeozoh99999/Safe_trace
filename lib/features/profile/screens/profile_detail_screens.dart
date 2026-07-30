@@ -1,5 +1,13 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../contacts/providers/contacts_provider.dart';
+export '../../contacts/screens/trusted_circle_screen.dart';
+export '../../contacts/screens/add_contact_request_screen.dart';
+import '../../auth/providers/auth_provider.dart';
+import '../../../core/theme/app_colors.dart';
 
 // --- ANIMATION TRANSITION HELPER ---
 Route _createRoute(Widget page) {
@@ -74,25 +82,25 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
     ];
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF9FAFB),
+      backgroundColor: context.scaffoldBg,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: context.cardBg,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Color(0xFF111827), size: 20),
+          icon: Icon(Icons.arrow_back_ios_new_rounded, color: context.textPrimary, size: 20),
           onPressed: () => Navigator.of(context).pop(),
         ),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: const [
+          children: [
             Text(
               "Help & Support",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Color(0xFF111827)),
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: context.textPrimary),
             ),
-            SizedBox(height: 2),
+            const SizedBox(height: 2),
             Text(
               "SafeTrace Support Centre",
-              style: TextStyle(fontSize: 12, color: Color(0xFF6B7280), fontWeight: FontWeight.w500),
+              style: TextStyle(fontSize: 12, color: context.textSecondary, fontWeight: FontWeight.w500),
             ),
           ],
         ),
@@ -105,18 +113,19 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
             // Search field FAQ
             Container(
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: context.cardBg,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFE5E7EB)),
+                border: Border.all(color: context.border),
               ),
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Row(
-                children: const [
-                  Icon(Icons.search, color: Color(0xFF9CA3AF), size: 20),
-                  SizedBox(width: 8),
+                children: [
+                  const Icon(Icons.search, color: Color(0xFF9CA3AF), size: 20),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: TextField(
-                      decoration: InputDecoration(
+                      style: TextStyle(color: context.textPrimary),
+                      decoration: const InputDecoration(
                         hintText: "Search FAQs, topics...",
                         hintStyle: TextStyle(color: Color(0xFF9CA3AF), fontSize: 14),
                         border: InputBorder.none,
@@ -374,323 +383,10 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
   }
 }
 
+// 2. TRUSTED CIRCLE SCREEN (Delegates to new Request-Based System)
 // ==========================================================
-// 2. TRUSTED CIRCLE SCREEN (Trusted Circle.png)
-// ==========================================================
-class TrustedCircleScreen extends StatefulWidget {
-  const TrustedCircleScreen({super.key});
-
-  @override
-  State<TrustedCircleScreen> createState() => _TrustedCircleScreenState();
-}
-
-class _TrustedCircleScreenState extends State<TrustedCircleScreen> {
-  final List<Map<String, String>> _contacts = [
-    {"name": "Chioma Obi", "phone": "+234 802 345 6789", "relation": "Emergency Circle"},
-    {"name": "Yusuf Alabi", "phone": "+234 803 123 4567", "relation": "Emergency Circle"},
-    {"name": "Ngozi Nwosu", "phone": "+234 805 987 6543", "relation": "Emergency Circle"},
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF9FAFB),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Color(0xFF111827), size: 20),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              "Trusted Circle",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Color(0xFF111827)),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              "${_contacts.length} of 5 contacts added",
-              style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280), fontWeight: FontWeight.w500),
-            ),
-          ],
-        ),
-      ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.all(16.0),
-                children: [
-                  // TRUSTED CONTACTS Header
-                  const Text(
-                    "TRUSTED CONTACTS",
-                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Color(0xFF6B7280), letterSpacing: 0.5),
-                  ),
-                  const SizedBox(height: 12),
-
-                  // Contacts List
-                  ...List.generate(_contacts.length, (index) {
-                    final c = _contacts[index];
-                    return Container(
-                      margin: const EdgeInsets.only(bottom: 12),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: const Color(0xFFE5E7EB)),
-                      ),
-                      child: ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: const Color(0xFFEEF2FF),
-                          child: Text(c["name"]!.substring(0, 1), style: const TextStyle(color: Color(0xFF4F46E5), fontWeight: FontWeight.bold)),
-                        ),
-                        title: Text(c["name"]!, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                        subtitle: Text(c["phone"]!, style: const TextStyle(color: Color(0xFF6B7280), fontSize: 12)),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(color: const Color(0xFFEEF2FF), borderRadius: BorderRadius.circular(6)),
-                              child: Text(c["relation"]!, style: const TextStyle(color: Color(0xFF4F46E5), fontSize: 9, fontWeight: FontWeight.bold)),
-                            ),
-                            const SizedBox(width: 8),
-                            IconButton(
-                              icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFEF4444)),
-                              onPressed: () {
-                                setState(() {
-                                  _contacts.removeAt(index);
-                                });
-                              },
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  }),
-
-                  const SizedBox(height: 16),
-                  // INACTIVE USERS
-                  const Text(
-                    "WELFARE STATUS",
-                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Color(0xFF6B7280), letterSpacing: 0.5),
-                  ),
-                  const SizedBox(height: 12),
-                  Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: const Color(0xFFE5E7EB)),
-                    ),
-                    child: ListTile(
-                      leading: const CircleAvatar(
-                        backgroundColor: Color(0xFFFFFBEB),
-                        child: Text("E", style: TextStyle(color: Color(0xFFD97706), fontWeight: FontWeight.bold)),
-                      ),
-                      title: const Text("Emeka Okafor", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                      subtitle: const Text("3 days inactive", style: TextStyle(color: Color(0xFFD97706), fontSize: 12)),
-                      trailing: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(color: const Color(0xFFFEF3C7), borderRadius: BorderRadius.circular(6)),
-                        child: const Text("Welfare Check Active", style: TextStyle(color: Color(0xFFD97706), fontSize: 9, fontWeight: FontWeight.bold)),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // Bottom Add Contact Button
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                border: Border(top: BorderSide(color: Color(0xFFE5E7EB))),
-              ),
-              child: SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF4F46E5),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  onPressed: () {
-                    Navigator.of(context).push(_createRoute(AddContactScreen(onContactAdded: (name, phone) {
-                      setState(() {
-                        _contacts.add({"name": name, "phone": phone, "relation": "Family"});
-                      });
-                    })));
-                  },
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: const [
-                      Icon(Icons.add, color: Colors.white),
-                      SizedBox(width: 8),
-                      Text("Add Contact", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ==========================================================
-// 3. ADD CONTACT SCREEN (Trusted Circle - Add Contact.png)
-// ==========================================================
-class AddContactScreen extends StatefulWidget {
-  final Function(String, String) onContactAdded;
-  const AddContactScreen({super.key, required this.onContactAdded});
-
-  @override
-  State<AddContactScreen> createState() => _AddContactScreenState();
-}
-
-class _AddContactScreenState extends State<AddContactScreen> {
-  final _nameCtrl = TextEditingController();
-  final _phoneCtrl = TextEditingController();
-  String _relationship = "Family";
-  bool _welfareCheck = true;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF9FAFB),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Color(0xFF111827), size: 20),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: const [
-            Text(
-              "Add Contact",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Color(0xFF111827)),
-            ),
-            SizedBox(height: 2),
-            Text(
-              "Add to your trusted circle",
-              style: TextStyle(fontSize: 12, color: Color(0xFF6B7280), fontWeight: FontWeight.w500),
-            ),
-          ],
-        ),
-      ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Name Field
-                    const Text("FULL NAME", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF6B7280))),
-                    const SizedBox(height: 8),
-                    Container(
-                      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFFE5E7EB))),
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: TextField(
-                        controller: _nameCtrl,
-                        decoration: const InputDecoration(hintText: "Enter full name", border: InputBorder.none),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-
-                    // Phone Field
-                    const Text("PHONE NUMBER", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF6B7280))),
-                    const SizedBox(height: 8),
-                    Container(
-                      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFFE5E7EB))),
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: TextField(
-                        controller: _phoneCtrl,
-                        keyboardType: TextInputType.phone,
-                        decoration: const InputDecoration(hintText: "+234 800 000 0000", border: InputBorder.none),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-
-                    // Relationship dropdown mock
-                    const Text("RELATIONSHIP", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF6B7280))),
-                    const SizedBox(height: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFFE5E7EB))),
-                      child: DropdownButtonHideUnderline(
-                        child: DropdownButton<String>(
-                          value: _relationship,
-                          isExpanded: true,
-                          items: ["Family", "Friend", "Colleague", "Neighbor"].map((val) {
-                            return DropdownMenuItem(value: val, child: Text(val));
-                          }).toList(),
-                          onChanged: (val) {
-                            if (val != null) setState(() => _relationship = val);
-                          },
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-
-                    // Welfare Check Option Toggle
-                    Container(
-                      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: const Color(0xFFE5E7EB))),
-                      child: SwitchListTile(
-                        value: _welfareCheck,
-                        onChanged: (val) => setState(() => _welfareCheck = val),
-                        activeColor: const Color(0xFF4F46E5),
-                        title: const Text("Enable Welfare Check", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                        subtitle: const Text("Automatically send alert check-in if contact is inactive for 3 days.", style: TextStyle(fontSize: 12)),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
-            // Submit Button
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                border: Border(top: BorderSide(color: Color(0xFFE5E7EB))),
-              ),
-              child: SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF4F46E5),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  onPressed: () {
-                    final name = _nameCtrl.text.trim();
-                    final phone = _phoneCtrl.text.trim();
-                    if (name.isNotEmpty && phone.isNotEmpty) {
-                      widget.onContactAdded(name, phone);
-                      Navigator.of(context).pop();
-                    }
-                  },
-                  child: const Text("Add Contact", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
+// Handled by lib/features/contacts/screens/trusted_circle_screen.dart
+// and lib/features/contacts/screens/add_contact_request_screen.dart
 
 // ==========================================================
 // 4. WELFARE CHECK ALERT SCREEN (Welfare Check Alert.png)
@@ -707,26 +403,28 @@ class _WelfareCheckAlertScreenState extends State<WelfareCheckAlertScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF9FAFB),
+      backgroundColor: isDark ? AppColors.backgroundDark : const Color(0xFFF9FAFB),
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: isDark ? AppColors.cardDark : Colors.white,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Color(0xFF111827), size: 20),
+          icon: Icon(Icons.arrow_back_ios_new_rounded, color: isDark ? Colors.white : const Color(0xFF111827), size: 20),
           onPressed: () => Navigator.of(context).pop(),
         ),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: const [
+          children: [
             Text(
               "Welfare Check",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Color(0xFF111827)),
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: isDark ? Colors.white : const Color(0xFF111827)),
             ),
-            SizedBox(height: 2),
+            const SizedBox(height: 2),
             Text(
               "Automated check-ins for inactive circle users",
-              style: TextStyle(fontSize: 12, color: Color(0xFF6B7280), fontWeight: FontWeight.w500),
+              style: TextStyle(fontSize: 12, color: isDark ? AppColors.textDarkSecondary : const Color(0xFF6B7280), fontWeight: FontWeight.w500),
             ),
           ],
         ),
@@ -827,26 +525,28 @@ class _NotificationPreferencesScreenState extends State<NotificationPreferencesS
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF9FAFB),
+      backgroundColor: isDark ? AppColors.backgroundDark : const Color(0xFFF9FAFB),
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: isDark ? AppColors.cardDark : Colors.white,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Color(0xFF111827), size: 20),
+          icon: Icon(Icons.arrow_back_ios_new_rounded, color: isDark ? Colors.white : const Color(0xFF111827), size: 20),
           onPressed: () => Navigator.of(context).pop(),
         ),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: const [
+          children: [
             Text(
               "Notifications",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Color(0xFF111827)),
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: isDark ? Colors.white : const Color(0xFF111827)),
             ),
-            SizedBox(height: 2),
+            const SizedBox(height: 2),
             Text(
               "Alerts, check-ins, updates",
-              style: TextStyle(fontSize: 12, color: Color(0xFF6B7280), fontWeight: FontWeight.w500),
+              style: TextStyle(fontSize: 12, color: isDark ? AppColors.textDarkSecondary : const Color(0xFF6B7280), fontWeight: FontWeight.w500),
             ),
           ],
         ),
@@ -914,26 +614,28 @@ class _PrivacyDataScreenState extends State<PrivacyDataScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF9FAFB),
+      backgroundColor: isDark ? AppColors.backgroundDark : const Color(0xFFF9FAFB),
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: isDark ? AppColors.cardDark : Colors.white,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Color(0xFF111827), size: 20),
+          icon: Icon(Icons.arrow_back_ios_new_rounded, color: isDark ? Colors.white : const Color(0xFF111827), size: 20),
           onPressed: () => Navigator.of(context).pop(),
         ),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: const [
+          children: [
             Text(
               "Privacy & Data",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Color(0xFF111827)),
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: isDark ? Colors.white : const Color(0xFF111827)),
             ),
-            SizedBox(height: 2),
+            const SizedBox(height: 2),
             Text(
               "Location sharing, data retention",
-              style: TextStyle(fontSize: 12, color: Color(0xFF6B7280), fontWeight: FontWeight.w500),
+              style: TextStyle(fontSize: 12, color: isDark ? AppColors.textDarkSecondary : const Color(0xFF6B7280), fontWeight: FontWeight.w500),
             ),
           ],
         ),
@@ -995,13 +697,14 @@ class _PrivacyDataScreenState extends State<PrivacyDataScreen> {
 // ==========================================================
 // 7. SIGN OUT (Sign Out.png)
 // ==========================================================
-class SignOutScreen extends StatelessWidget {
+class SignOutScreen extends ConsumerWidget {
   const SignOutScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: isDark ? AppColors.backgroundDark : Colors.white,
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(24.0),
@@ -1021,7 +724,7 @@ class SignOutScreen extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               const Text(
-                "Are you sure you want to sign out? You will need to verify your phone number via SMS OTP to log back in.",
+                "Are you sure you want to sign out? You will need to verify your email address via email OTP to log back in.",
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Color(0xFF6B7280), fontSize: 14, height: 1.45),
               ),
@@ -1034,9 +737,9 @@ class SignOutScreen extends StatelessWidget {
                     backgroundColor: const Color(0xFFEF4444),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                  onPressed: () {
+                  onPressed: () async {
                     Navigator.of(context).pop();
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Signed out successfully")));
+                    await ref.read(authNotifierProvider.notifier).signOut();
                   },
                   child: const Text("Sign Out", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
                 ),
@@ -1073,24 +776,26 @@ class _DeleteAccountConfirmScreenState extends State<DeleteAccountConfirmScreen>
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF9FAFB),
+      backgroundColor: isDark ? AppColors.backgroundDark : const Color(0xFFF9FAFB),
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: isDark ? AppColors.cardDark : Colors.white,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Color(0xFF111827), size: 20),
+          icon: Icon(Icons.arrow_back_ios_new_rounded, color: isDark ? Colors.white : const Color(0xFF111827), size: 20),
           onPressed: () => Navigator.of(context).pop(),
         ),
         title: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: const [
-            Text(
+          children: [
+            const Text(
               "Delete Account",
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Color(0xFFD32F2F)),
             ),
             Row(
-              children: [
+              children: const [
                 Icon(Icons.circle, size: 6, color: Color(0xFFD32F2F)),
                 SizedBox(width: 4),
                 Icon(Icons.circle, size: 6, color: Colors.grey),
@@ -1299,24 +1004,26 @@ class _VerifyIdentityScreenState extends State<VerifyIdentityScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF9FAFB),
+      backgroundColor: isDark ? AppColors.backgroundDark : const Color(0xFFF9FAFB),
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: isDark ? AppColors.cardDark : Colors.white,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Color(0xFF111827), size: 20),
+          icon: Icon(Icons.arrow_back_ios_new_rounded, color: isDark ? Colors.white : const Color(0xFF111827), size: 20),
           onPressed: () => Navigator.of(context).pop(),
         ),
         title: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: const [
-            Text(
+          children: [
+            const Text(
               "Verify Your Identity",
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Color(0xFFD32F2F)),
             ),
             Row(
-              children: [
+              children: const [
                 Icon(Icons.circle, size: 6, color: Colors.grey),
                 SizedBox(width: 4),
                 Icon(Icons.circle, size: 6, color: Color(0xFFD32F2F)),
@@ -1463,10 +1170,12 @@ class AccountDeletedScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF9FAFB),
+      backgroundColor: isDark ? AppColors.backgroundDark : const Color(0xFFF9FAFB),
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: isDark ? AppColors.cardDark : Colors.white,
         elevation: 0,
         automaticallyImplyLeading: false,
         title: const Text(
@@ -1487,7 +1196,7 @@ class AccountDeletedScreen extends StatelessWidget {
               ),
               const SizedBox(height: 24),
               const Text(
-                "Goodbye, Jude.",
+                "Goodbye.",
                 style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: Color(0xFF111827)),
               ),
               const SizedBox(height: 12),

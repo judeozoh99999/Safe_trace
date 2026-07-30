@@ -5,23 +5,39 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val envFile = file("../../.env")
+var googleMapsKey = ""
+if (envFile.exists()) {
+    envFile.forEachLine { line ->
+        if (line.startsWith("GOOGLE_MAPS_API_KEY_ANDROID=")) {
+            googleMapsKey = line.substringAfter("=").trim()
+        }
+    }
+}
+
 android {
     namespace = "com.safetrace.safetrace"
     compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
 
     kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_17.toString()
+        jvmTarget = "17"
+    }
+
+    androidResources {
+        noCompress.add("tflite")
+        noCompress.add("lite")
     }
 
     packaging {
         jniLibs {
-            useLegacyPackaging = false
+            useLegacyPackaging = true
         }
     }
 
@@ -34,6 +50,7 @@ android {
         targetSdk = 35
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        manifestPlaceholders["GOOGLE_MAPS_API_KEY"] = googleMapsKey
     }
 
     buildTypes {
@@ -51,4 +68,8 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }

@@ -1,27 +1,86 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../shared/widgets/custom_buttons.dart';
+import '../providers/auth_provider.dart';
 import 'welcome_back_screen.dart';
 import 'enter_details_screen.dart';
 import 'terms_of_service_screen.dart';
 import 'privacy_policy_screen.dart';
 
-class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+class LoginScreen extends ConsumerStatefulWidget {
+  final String? initialErrorMessage;
+  const LoginScreen({super.key, this.initialErrorMessage});
 
   @override
-  State<LoginScreen> createState() => _LoginScreenState();
+  ConsumerState<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _phoneController = TextEditingController();
+  late final FocusNode _phoneFocusNode;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _errorMessage = widget.initialErrorMessage;
+    _phoneFocusNode = FocusNode();
+    _phoneFocusNode.addListener(() {
+      if (!_phoneFocusNode.hasFocus) {
+        _validatePhone();
+      }
+    });
+  }
 
   @override
   void dispose() {
     _phoneController.dispose();
+    _phoneFocusNode.dispose();
     super.dispose();
+  }
+
+  bool _isValidNigerianNumber(String phone) {
+    final cleaned = phone.replaceAll(RegExp(r'\D'), '');
+    String local = cleaned;
+    if (local.startsWith('234')) {
+      local = local.substring(3);
+    } else if (local.startsWith('0')) {
+      local = local.substring(1);
+    }
+    if (local.length != 10) return false;
+    final firstDigit = local[0];
+    return firstDigit == '7' || firstDigit == '8' || firstDigit == '9';
+  }
+
+  void _validatePhone() {
+    final text = _phoneController.text.trim();
+    if (text.isEmpty) {
+      setState(() {
+        _errorMessage = "Please enter your phone number";
+      });
+    } else if (!_isValidNigerianNumber(text)) {
+      setState(() {
+        _errorMessage = "Please enter a valid Nigerian mobile number (e.g., 803 123 4567)";
+      });
+    } else {
+      setState(() {
+        _errorMessage = null;
+      });
+    }
+  }
+
+  String _formatNigerianPhoneNumber(String phone) {
+    String cleaned = phone.replaceAll(RegExp(r'\D'), '');
+    if (cleaned.startsWith('234')) {
+      return '+$cleaned';
+    }
+    if (cleaned.startsWith('0')) {
+      cleaned = cleaned.substring(1);
+    }
+    return '+234$cleaned';
   }
 
   @override
@@ -34,24 +93,6 @@ class _LoginScreenState extends State<LoginScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Back Button
-              GestureDetector(
-                onTap: () => Navigator.of(context).pop(),
-                child: Container(
-                  width: 40,
-                  height: 40,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFF3F4F6),
-                    shape: BoxShape.circle,
-                  ),
-                  alignment: Alignment.center,
-                  child: const Icon(
-                    Icons.arrow_back,
-                    color: Color(0xFF1F2937),
-                    size: 20,
-                  ),
-                ),
-              ),
               const SizedBox(height: 24),
 
               // Logo & App Name
@@ -87,7 +128,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
               // Headings
               const Text(
-                "Enter your phone number",
+                "Verify your phone number",
                 style: TextStyle(
                   fontSize: 28,
                   fontWeight: FontWeight.w800,
@@ -112,7 +153,10 @@ class _LoginScreenState extends State<LoginScreen> {
                 decoration: BoxDecoration(
                   color: const Color(0xFFF9FAFB),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFE5E7EB), width: 1.5),
+                  border: Border.all(
+                    color: _errorMessage != null ? Colors.red : const Color(0xFFE5E7EB),
+                    width: 1.5,
+                  ),
                 ),
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 child: Row(
@@ -142,6 +186,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     Expanded(
                       child: TextField(
                         controller: _phoneController,
+                        focusNode: _phoneFocusNode,
                         keyboardType: TextInputType.phone,
                         style: const TextStyle(
                           fontSize: 16,
@@ -163,6 +208,15 @@ class _LoginScreenState extends State<LoginScreen> {
                   ],
                 ),
               ),
+              
+              if (_errorMessage != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  _errorMessage!,
+                  style: const TextStyle(color: Colors.red, fontSize: 13, fontWeight: FontWeight.bold),
+                ),
+              ],
+
               const SizedBox(height: 24),
 
               // Terms Policy Text
@@ -210,44 +264,40 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
               const SizedBox(height: 48),
 
-              // Redirect to Login
-              Center(
-                child: GestureDetector(
-                  onTap: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const WelcomeBackScreen(),
-                      ),
-                    );
-                  },
-                  child: RichText(
-                    text: const TextSpan(
-                      style: TextStyle(fontSize: 15, color: Color(0xFF6B7280)),
-                      children: [
-                        TextSpan(text: "Already have an account? "),
-                        TextSpan(
-                          text: "Sign in",
-                          style: TextStyle(
-                            color: AppColors.primary,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 24),
-
-              // Continue Action Button
+              // Create Account Action Button
               SafeTraceButton(
-                text: "Continue",
+                text: "Create Account",
                 type: ButtonType.primary,
                 icon: Icons.arrow_forward_ios_rounded,
                 onPressed: () {
+                  _validatePhone();
+                  if (_errorMessage == null) {
+                    final formattedPhone = _formatNigerianPhoneNumber(_phoneController.text.trim());
+                    ref.read(authNotifierProvider.notifier).setPhone(formattedPhone);
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const EnterDetailsScreen(),
+                      ),
+                    );
+                  }
+                },
+              ),
+              const SizedBox(height: 16),
+
+              // Sign In Action Button
+              SafeTraceButton(
+                text: "Sign In",
+                type: ButtonType.secondary,
+                icon: Icons.login_rounded,
+                onPressed: () {
+                  final text = _phoneController.text.trim();
+                  if (text.isNotEmpty && _isValidNigerianNumber(text)) {
+                    final formattedPhone = _formatNigerianPhoneNumber(text);
+                    ref.read(authNotifierProvider.notifier).setPhone(formattedPhone);
+                  }
                   Navigator.of(context).push(
                     MaterialPageRoute(
-                      builder: (_) => const EnterDetailsScreen(),
+                      builder: (_) => const WelcomeBackScreen(),
                     ),
                   );
                 },

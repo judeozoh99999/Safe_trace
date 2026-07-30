@@ -32,16 +32,29 @@ dependencies:
 
   # Environment Variables
   flutter_dotenv: ^5.1.1
+  shared_preferences: ^2.2.3
 
   # Maps & Location
   geolocator: ^12.0.0
+  geocoding: ^3.0.0
   google_maps_flutter: ^2.6.2
+  url_launcher: ^6.3.0
+  permission_handler: ^11.3.1
+  share_plus: ^10.1.4
+  qr_flutter: ^4.1.0
+  mobile_scanner: ^5.2.0
+  flutter_local_notifications: ^17.2.1
+  vibration: ^2.0.1
+  flutter_compass: ^0.8.0
 
   # Crash Reporting
   sentry_flutter: ^8.2.0
 
-  # Machine Learning
-  tflite_flutter: ^0.10.4
+  # Machine Learning & Audio
+  tflite_flutter: ^0.12.0
+  speech_to_text: ^7.0.0
+  record: ^5.2.0
+  web_socket_channel: ^3.0.1
 
   # Fonts
   google_fonts: ^6.2.0
@@ -56,6 +69,9 @@ dev_dependencies:
   riverpod_generator: ^2.3.9
   json_serializable: ^6.8.0
   json_annotation: ^4.9.0
+
+dependency_overrides:
+  record_linux: ^1.0.0
 
 flutter:
   uses-material-design: true

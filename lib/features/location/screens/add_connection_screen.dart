@@ -1,272 +1,464 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/services.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:share_plus/share_plus.dart';
+import '../providers/nearby_alert_provider.dart';
+import '../../../core/theme/app_colors.dart';
 
-enum ConnectionType { personal, venue, responder }
-
-class AddConnectionScreen extends StatefulWidget {
+class AddConnectionScreen extends ConsumerStatefulWidget {
   const AddConnectionScreen({super.key});
 
   @override
-  State<AddConnectionScreen> createState() => _AddConnectionScreenState();
+  ConsumerState<AddConnectionScreen> createState() => _AddConnectionScreenState();
 }
 
-class _AddConnectionScreenState extends State<AddConnectionScreen> {
+class _AddConnectionScreenState extends ConsumerState<AddConnectionScreen> {
   bool _isEnterIdTab = true;
-  bool _requestSent = false;
-  final TextEditingController _idController = TextEditingController(text: "JN-4892-X7");
-  ConnectionType _selectedType = ConnectionType.personal;
+  final TextEditingController _idController = TextEditingController();
+  String _selectedType = 'Personal'; // Personal, Venue, Responder
+  String? _inlineError;
+  bool _isLoading = false;
+
+  // Scanner control
+  final MobileScannerController _scannerController = MobileScannerController();
+  bool _isScanning = true;
 
   @override
   void dispose() {
     _idController.dispose();
+    _scannerController.dispose();
     super.dispose();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF9FAFB),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Color(0xFF111827), size: 20),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: const [
-            Text(
-              "Add Connection",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Color(0xFF111827)),
-            ),
-            SizedBox(height: 2),
-            Text(
-              "Enter an ID or scan a QR code",
-              style: TextStyle(fontSize: 12, color: Color(0xFF6B7280), fontWeight: FontWeight.w500),
-            ),
-          ],
-        ),
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(60),
-          child: Container(
-            color: Colors.white,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              children: [
-                // Enter ID Tab Button
-                Expanded(
-                  child: SizedBox(
-                    height: 44,
+  void _sendRequest() async {
+    final targetId = _idController.text.trim().toUpperCase();
+    setState(() {
+      _inlineError = null;
+    });
+
+    if (targetId.isEmpty) {
+      setState(() {
+        _inlineError = "Please enter a Nearby Alert ID";
+      });
+      return;
+    }
+
+    final state = ref.read(nearbyAlertProvider).valueOrNull;
+    if (state != null && targetId == state.nearbyAlertId) {
+      setState(() {
+        _inlineError = "You cannot connect with yourself.";
+      });
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    try {
+      await ref.read(nearbyAlertProvider.notifier).sendConnectionRequest(targetId, _selectedType);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Connection request sent successfully!")),
+        );
+        Navigator.of(context).pop();
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _inlineError = e.toString().replaceAll("Exception: ", "");
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  void _onQrCodeScanned(String scannedId) {
+    if (!_isScanning) return;
+    setState(() {
+      _isScanning = false;
+    });
+    _scannerController.stop();
+
+    // Show Confirmation Bottom Sheet
+    _showConnectionConfirmationSheet(scannedId);
+  }
+
+  void _showConnectionConfirmationSheet(String scannedId) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        String localSelectedType = 'Personal';
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Container(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    "Confirm Connection",
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    "Select connection type to connect with ID: $scannedId",
+                    style: const TextStyle(fontSize: 13, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Connection type selectable cards row
+                  Row(
+                    children: [
+                      _buildModalTypeCard('Personal', Icons.person_outline_rounded, 'Friends', localSelectedType, (type) {
+                        setModalState(() => localSelectedType = type);
+                      }),
+                      const SizedBox(width: 8),
+                      _buildModalTypeCard('Venue', Icons.storefront_rounded, 'Venues', localSelectedType, (type) {
+                        setModalState(() => localSelectedType = type);
+                      }),
+                      const SizedBox(width: 8),
+                      _buildModalTypeCard('Responder', Icons.local_police_rounded, 'Services', localSelectedType, (type) {
+                        setModalState(() => localSelectedType = type);
+                      }),
+                    ],
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
                     child: ElevatedButton(
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: _isEnterIdTab ? const Color(0xFF131522) : const Color(0xFFF3F4F6),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        elevation: 0,
+                        backgroundColor: const Color(0xFF131522),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
-                      onPressed: () {
-                        setState(() {
-                          _isEnterIdTab = true;
-                        });
+                      onPressed: () async {
+                        Navigator.of(context).pop(); // close modal
+                        setState(() => _isLoading = true);
+
+                        try {
+                          await ref.read(nearbyAlertProvider.notifier).sendConnectionRequest(scannedId, localSelectedType);
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text("Connection request sent successfully!")),
+                            );
+                            Navigator.of(context).pop(); // pop screen
+                          }
+                        } catch (e) {
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text("Error: ${e.toString().replaceAll("Exception: ", "")}")),
+                            );
+                            // Resume scanning
+                            setState(() {
+                              _isScanning = true;
+                            });
+                            _scannerController.start();
+                          }
+                        } finally {
+                          if (mounted) {
+                            setState(() => _isLoading = false);
+                          }
+                        }
                       },
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.numbers,
-                            color: _isEnterIdTab ? Colors.white : const Color(0xFF6B7280),
-                            size: 18,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            "Enter ID",
-                            style: TextStyle(
-                              color: _isEnterIdTab ? Colors.white : const Color(0xFF6B7280),
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14,
-                            ),
-                          ),
-                        ],
-                      ),
+                      child: const Text("Confirm & Send Request", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                     ),
                   ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    ).then((_) {
+      // If bottom sheet was dismissed without sending, resume scanning
+      if (!_isScanning && mounted) {
+        setState(() {
+          _isScanning = true;
+        });
+        _scannerController.start();
+      }
+    });
+  }
+
+  Widget _buildModalTypeCard(String type, IconData icon, String label, String currentSelected, ValueChanged<String> onSelected) {
+    final isSelected = type == currentSelected;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => onSelected(type),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          decoration: BoxDecoration(
+            color: isSelected ? const Color(0xFFEEF2FF) : Colors.white,
+            border: Border.all(color: isSelected ? const Color(0xFF4F46E5) : const Color(0xFFE5E7EB)),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            children: [
+              Icon(icon, color: isSelected ? const Color(0xFF4F46E5) : Colors.grey, size: 20),
+              const SizedBox(height: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: isSelected ? const Color(0xFF4F46E5) : Colors.grey,
                 ),
-                const SizedBox(width: 12),
-                // Scan QR Tab Button
-                Expanded(
-                  child: SizedBox(
-                    height: 44,
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: !_isEnterIdTab ? const Color(0xFF131522) : const Color(0xFFF3F4F6),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        elevation: 0,
-                      ),
-                      onPressed: () {
-                        setState(() {
-                          _isEnterIdTab = false;
-                        });
-                      },
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.qr_code_scanner_rounded,
-                            color: !_isEnterIdTab ? Colors.white : const Color(0xFF6B7280),
-                            size: 18,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            "Scan QR",
-                            style: TextStyle(
-                              color: !_isEnterIdTab ? Colors.white : const Color(0xFF6B7280),
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
-      ),
-      body: SafeArea(
-        child: _requestSent ? _buildRequestSentBody() : _buildActiveTabBody(),
       ),
     );
   }
 
-  Widget _buildActiveTabBody() {
-    if (_isEnterIdTab) {
-      return _buildEnterIdBody();
-    } else {
-      return _buildScanQrBody();
-    }
+  @override
+  Widget build(BuildContext context) {
+    final asyncVal = ref.watch(nearbyAlertProvider);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Scaffold(
+      backgroundColor: isDark ? AppColors.backgroundDark : const Color(0xFFF9FAFB),
+      appBar: AppBar(
+        backgroundColor: isDark ? AppColors.cardDark : Colors.white,
+        elevation: 0,
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back_ios_new_rounded, color: isDark ? Colors.white : const Color(0xFF111827), size: 20),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              "Add Connection",
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: isDark ? Colors.white : const Color(0xFF111827)),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              "Enter an ID or scan a QR code",
+              style: TextStyle(fontSize: 12, color: isDark ? AppColors.textDarkSecondary : const Color(0xFF6B7280), fontWeight: FontWeight.w500),
+            ),
+          ],
+        ),
+      ),
+      body: SafeArea(
+        child: asyncVal.when(
+          data: (state) => _buildTabsAndBody(state, isDark),
+          loading: () => const Center(child: CircularProgressIndicator(color: Color(0xFF4F46E5))),
+          error: (e, st) => Center(child: Text("Error loading Nearby Alert: $e")),
+        ),
+      ),
+    );
   }
 
-  // --- TAB 1: ENTER ID VIEW ---
-  Widget _buildEnterIdBody() {
+  Widget _buildTabsAndBody(NearbyAlertState state, bool isDark) {
+    return Column(
+      children: [
+        // Tab buttons header
+        Container(
+          color: isDark ? AppColors.cardDark : Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(
+            children: [
+              // Enter ID
+              Expanded(
+                child: SizedBox(
+                  height: 44,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _isEnterIdTab 
+                          ? (isDark ? AppColors.primary : const Color(0xFF131522)) 
+                          : (isDark ? const Color(0xFF1F2937) : const Color(0xFFF3F4F6)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      elevation: 0,
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        _isEnterIdTab = true;
+                      });
+                    },
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.numbers_rounded, color: _isEnterIdTab ? Colors.white : const Color(0xFF6B7280), size: 16),
+                        const SizedBox(width: 8),
+                        Text(
+                          "Enter ID",
+                          style: TextStyle(
+                            color: _isEnterIdTab ? Colors.white : const Color(0xFF6B7280),
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              // Scan QR
+              Expanded(
+                child: SizedBox(
+                  height: 44,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: !_isEnterIdTab 
+                          ? (isDark ? AppColors.primary : const Color(0xFF131522)) 
+                          : (isDark ? const Color(0xFF1F2937) : const Color(0xFFF3F4F6)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      elevation: 0,
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        _isEnterIdTab = false;
+                      });
+                    },
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.qr_code_scanner_rounded, color: !_isEnterIdTab ? Colors.white : const Color(0xFF6B7280), size: 16),
+                        const SizedBox(width: 8),
+                        Text(
+                          "Scan QR",
+                          style: TextStyle(
+                            color: !_isEnterIdTab ? Colors.white : const Color(0xFF6B7280),
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        // Body content
+        Expanded(
+          child: _isEnterIdTab 
+              ? _buildEnterIdTab(state, isDark)
+              : _buildScanQrTab(state, isDark),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEnterIdTab(NearbyAlertState state, bool isDark) {
+    final displayId = state.nearbyAlertId.isNotEmpty ? state.nearbyAlertId : "NA00000000";
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Your ID Card
-          Container(
-            width: double.infinity,
-            decoration: BoxDecoration(
-              color: const Color(0xFF131522), // Dark Navy
-              borderRadius: BorderRadius.circular(16),
-            ),
-            padding: const EdgeInsets.all(18),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: const [
-                    Row(
-                      children: [
-                        Icon(Icons.shield_outlined, color: Colors.white70, size: 16),
-                        SizedBox(width: 6),
-                        Text(
-                          "YOUR NEARBY ALERT ID",
-                          style: TextStyle(
-                            color: Colors.white70,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: 0.5,
-                          ),
+          // User's ID card
+          GestureDetector(
+            onTap: () {
+              Clipboard.setData(ClipboardData(text: displayId));
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text("Nearby Alert ID copied to clipboard!")),
+              );
+            },
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: const Color(0xFF131522), // Dark Navy
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Stack(
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        "YOUR NEARBY ALERT ID",
+                        style: TextStyle(
+                          color: Color(0xFF9CA3AF),
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1.0,
                         ),
-                      ],
-                    ),
-                    Icon(Icons.copy_rounded, color: Colors.white70, size: 18),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  "JN-4892-X7",
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 28,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 1.0,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        displayId,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 26,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      const Text(
+                        "Share this with others so they can connect with you",
+                        style: TextStyle(color: Colors.white70, fontSize: 12),
+                      ),
+                    ],
                   ),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  "Share this with others so they can connect with you",
-                  style: TextStyle(
-                    color: Colors.white60,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
+                  const Positioned(
+                    top: 0,
+                    right: 0,
+                    child: Icon(Icons.copy_rounded, color: Colors.white, size: 20),
+                  )
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 24),
 
-          // Title Header
           const Text(
             "Connect with someone",
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w900,
-              color: Color(0xFF111827),
-            ),
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
           const Text(
             "Enter the Nearby Alert ID of a person, venue, or emergency responder.",
-            style: TextStyle(
-              fontSize: 13,
-              color: Color(0xFF6B7280),
-              height: 1.45,
-              fontWeight: FontWeight.w500,
-            ),
+            style: TextStyle(fontSize: 12, color: Colors.grey),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
 
-          // Nearby Alert ID Text Field Label
+          // Labelled input field
           const Text(
             "NEARBY ALERT ID",
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w800,
-              color: Color(0xFF6B7280),
-              letterSpacing: 0.5,
-            ),
+            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey, letterSpacing: 0.5),
           ),
           const SizedBox(height: 8),
-
-          // ID Field
           Container(
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: isDark ? AppColors.cardDark : Colors.white,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFFE5E7EB), width: 1.5),
+              border: Border.all(color: _inlineError != null ? Colors.red : const Color(0xFFE5E7EB)),
             ),
-            padding: const EdgeInsets.symmetric(horizontal: 16),
+            padding: const EdgeInsets.symmetric(horizontal: 14),
             child: Row(
               children: [
-                const Icon(Icons.numbers, color: Color(0xFF9CA3AF), size: 20),
-                const SizedBox(width: 12),
+                const Text(
+                  "#",
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey),
+                ),
+                const SizedBox(width: 8),
                 Expanded(
                   child: TextField(
                     controller: _idController,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF111827),
-                    ),
+                    style: const TextStyle(fontWeight: FontWeight.bold),
                     decoration: const InputDecoration(
+                      hintText: "NA12345678",
                       border: InputBorder.none,
-                      focusedBorder: InputBorder.none,
-                      enabledBorder: InputBorder.none,
                       contentPadding: EdgeInsets.symmetric(vertical: 14),
                     ),
                   ),
@@ -274,71 +466,48 @@ class _AddConnectionScreenState extends State<AddConnectionScreen> {
               ],
             ),
           ),
+          if (_inlineError != null) ...[
+            const SizedBox(height: 6),
+            Text(_inlineError!, style: const TextStyle(color: Colors.red, fontSize: 12, fontWeight: FontWeight.w600)),
+          ],
           const SizedBox(height: 12),
           const Text(
             "After sending, the other party must approve before the connection becomes active.",
-            style: TextStyle(
-              fontSize: 12,
-              color: Color(0xFF6B7280),
-              height: 1.35,
-            ),
+            style: TextStyle(fontSize: 12, color: Colors.grey, height: 1.3),
           ),
           const SizedBox(height: 24),
 
-          // Connection Type Header
+          // Connection Type Row
           const Text(
             "CONNECTION TYPE",
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w800,
-              color: Color(0xFF6B7280),
-              letterSpacing: 0.5,
-            ),
+            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey, letterSpacing: 0.5),
           ),
-          const SizedBox(height: 12),
-
-          // Selector Cards Row
+          const SizedBox(height: 10),
           Row(
             children: [
-              _buildTypeBox(ConnectionType.personal, Icons.person, "Personal", "Friends & family"),
+              _buildTypeSelectionCard('Personal', Icons.person_outline_rounded, 'Friends and family', isDark),
               const SizedBox(width: 8),
-              _buildTypeBox(ConnectionType.venue, Icons.apartment_rounded, "Venue", "Hotels, malls"),
+              _buildTypeSelectionCard('Venue', Icons.storefront_rounded, 'Hotels and malls', isDark),
               const SizedBox(width: 8),
-              _buildTypeBox(ConnectionType.responder, Icons.local_taxi_rounded, "Responder", "Emergency services"),
+              _buildTypeSelectionCard('Responder', Icons.local_police_rounded, 'Emergency services', isDark),
             ],
           ),
-          const SizedBox(height: 36),
 
-          // Action button
+          const SizedBox(height: 32),
+
+          // Send button
           SizedBox(
             width: double.infinity,
             height: 50,
             child: ElevatedButton(
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF131522),
+                backgroundColor: isDark ? AppColors.primary : const Color(0xFF131522),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                elevation: 0,
               ),
-              onPressed: () {
-                setState(() {
-                  _requestSent = true;
-                });
-              },
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: const [
-                  Icon(Icons.send_rounded, color: Colors.white, size: 18),
-                  SizedBox(width: 8),
-                  Text(
-                    "Send Connection Request",
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
+              onPressed: _isLoading ? null : _sendRequest,
+              child: _isLoading
+                  ? const CircularProgressIndicator(color: Colors.white)
+                  : const Text("Send Connection Request", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
             ),
           ),
         ],
@@ -346,7 +515,7 @@ class _AddConnectionScreenState extends State<AddConnectionScreen> {
     );
   }
 
-  Widget _buildTypeBox(ConnectionType type, IconData icon, String label, String sub) {
+  Widget _buildTypeSelectionCard(String type, IconData icon, String subtitle, bool isDark) {
     final isSelected = _selectedType == type;
     return Expanded(
       child: GestureDetector(
@@ -356,40 +525,40 @@ class _AddConnectionScreenState extends State<AddConnectionScreen> {
           });
         },
         child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
           decoration: BoxDecoration(
-            color: isSelected ? const Color(0xFFF3F4F6) : Colors.white,
-            borderRadius: BorderRadius.circular(16),
+            color: isSelected 
+                ? (isDark ? const Color(0xFF1E1B4B) : const Color(0xFFEEF2FF)) 
+                : (isDark ? AppColors.cardDark : Colors.white),
             border: Border.all(
-              color: isSelected ? const Color(0xFF131522) : const Color(0xFFE5E7EB),
-              width: isSelected ? 1.5 : 1,
+              color: isSelected 
+                  ? const Color(0xFF4F46E5) 
+                  : (isDark ? AppColors.dividerDark : const Color(0xFFE5E7EB)),
+              width: 1.5,
             ),
+            borderRadius: BorderRadius.circular(12),
           ),
-          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
           child: Column(
             children: [
               Icon(
                 icon,
-                color: isSelected ? const Color(0xFF3B82F6) : const Color(0xFF9CA3AF),
+                color: isSelected ? const Color(0xFF4F46E5) : Colors.grey,
                 size: 24,
               ),
               const SizedBox(height: 8),
               Text(
-                label,
-                style: const TextStyle(
+                type,
+                style: TextStyle(
                   fontSize: 13,
-                  fontWeight: FontWeight.w900,
-                  color: Color(0xFF111827),
+                  fontWeight: FontWeight.bold,
+                  color: isSelected ? const Color(0xFF4F46E5) : (isDark ? Colors.white : const Color(0xFF1F2937)),
                 ),
               ),
-              const SizedBox(height: 2),
+              const SizedBox(height: 4),
               Text(
-                sub,
-                style: const TextStyle(
-                  fontSize: 9,
-                  color: Color(0xFF6B7280),
-                  fontWeight: FontWeight.w500,
-                ),
+                subtitle,
                 textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 10, color: Colors.grey, height: 1.2),
               ),
             ],
           ),
@@ -398,60 +567,50 @@ class _AddConnectionScreenState extends State<AddConnectionScreen> {
     );
   }
 
-  // --- TAB 2: SCAN QR VIEW (Scan QR Screen.png) ---
-  Widget _buildScanQrBody() {
+  Widget _buildScanQrTab(NearbyAlertState state, bool isDark) {
+    final displayId = state.nearbyAlertId.isNotEmpty ? state.nearbyAlertId : "NA00000000";
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
       child: Column(
         children: [
-          // Simulated QR Viewport
-          Container(
-            height: 280,
-            width: double.infinity,
-            decoration: BoxDecoration(
-              color: const Color(0xFF0C0E1A),
-              borderRadius: BorderRadius.circular(24),
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(24),
+          // Camera viewfinder
+          ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: Container(
+              height: 250,
+              width: double.infinity,
+              color: Colors.black,
               child: Stack(
                 alignment: Alignment.center,
                 children: [
-                  // Corner Red Frames
-                  Positioned(
-                    top: 20,
-                    left: 20,
-                    child: _buildCornerFrame(top: true, left: true),
+                  if (_isScanning)
+                    MobileScanner(
+                      controller: _scannerController,
+                      onDetect: (capture) {
+                        final List<Barcode> barcodes = capture.barcodes;
+                        if (barcodes.isNotEmpty) {
+                          final code = barcodes.first.rawValue;
+                          if (code != null && code.startsWith("NA")) {
+                            _onQrCodeScanned(code);
+                          }
+                        }
+                      },
+                    ),
+                  // Red corner brackets layout simulation
+                  Container(
+                    width: 180,
+                    height: 180,
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.red.withValues(alpha: 0.8), width: 2),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
-                  Positioned(
-                    top: 20,
-                    right: 20,
-                    child: _buildCornerFrame(top: true, left: false),
-                  ),
-                  Positioned(
-                    bottom: 20,
-                    left: 20,
-                    child: _buildCornerFrame(top: false, left: true),
-                  ),
-                  Positioned(
-                    bottom: 20,
-                    right: 20,
-                    child: _buildCornerFrame(top: false, left: false),
-                  ),
-
-                  // Animated Scanning Laser line
-                  const ScanningLaserLine(),
-
-                  // Bottom help text inside viewport
                   const Positioned(
-                    bottom: 32,
+                    bottom: 12,
                     child: Text(
-                      "Point at a Nearby Alert QR code",
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                      ),
+                      "Point at a Nearby Alert QR code Tap to Scan",
+                      style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
                     ),
                   ),
                 ],
@@ -459,371 +618,66 @@ class _AddConnectionScreenState extends State<AddConnectionScreen> {
             ),
           ),
           const SizedBox(height: 16),
-
           const Text(
             "Scan the Nearby Alert QR code displayed by a venue, responder, or contact to connect instantly.",
             textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 13,
-              color: Color(0xFF6B7280),
-              height: 1.45,
-              fontWeight: FontWeight.w500,
-            ),
+            style: TextStyle(fontSize: 12, color: Colors.grey, height: 1.4),
           ),
-          const SizedBox(height: 24),
-          const Divider(height: 1, color: Color(0xFFE5E7EB)),
           const SizedBox(height: 20),
 
-          const Text(
-            "Or show your QR code",
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w900,
-              color: Color(0xFF111827),
-            ),
-          ),
-          const SizedBox(height: 12),
-
-          // User's QR Code Card
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: const Color(0xFFE5E7EB)),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.02),
-                  blurRadius: 8,
-                  offset: const Offset(0, 4),
-                )
-              ],
-            ),
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              children: [
-                // Rendered vector/mock QR Code pattern
-                Container(
-                  width: 140,
-                  height: 140,
-                  color: Colors.white,
-                  child: CustomPaint(
-                    painter: QrCodeMockPainter(),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  "JN-4892-X7",
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w900,
-                    color: Color(0xFF6B7280),
-                    letterSpacing: 2.0,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCornerFrame({required bool top, required bool left}) {
-    return Container(
-      width: 24,
-      height: 24,
-      decoration: BoxDecoration(
-        border: Border(
-          top: top ? const BorderSide(color: Color(0xFFEF4444), width: 3) : BorderSide.none,
-          bottom: !top ? const BorderSide(color: Color(0xFFEF4444), width: 3) : BorderSide.none,
-          left: left ? const BorderSide(color: Color(0xFFEF4444), width: 3) : BorderSide.none,
-          right: !left ? const BorderSide(color: Color(0xFFEF4444), width: 3) : BorderSide.none,
-        ),
-      ),
-    );
-  }
-
-  // --- TAB 3: REQUEST SENT SUCCESS VIEW (Request Sent Screen.png) ---
-  Widget _buildRequestSentBody() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 48.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          // Green plane airplane circle
-          Container(
-            decoration: BoxDecoration(
-              color: const Color(0xFFE8F5E9),
-              shape: BoxShape.circle,
-              border: Border.all(color: const Color(0xFFC8E6C9), width: 1.5),
-            ),
-            padding: const EdgeInsets.all(24),
-            child: const Icon(
-              Icons.send_rounded,
-              color: Color(0xFF2E7D32),
-              size: 40,
-            ),
-          ),
-          const SizedBox(height: 24),
-
-          const Text(
-            "Request Sent!",
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.w900,
-              color: Color(0xFF111827),
-            ),
-          ),
-          const SizedBox(height: 12),
-
-          RichText(
-            textAlign: TextAlign.center,
-            text: const TextSpan(
-              style: TextStyle(color: Color(0xFF6B7280), fontSize: 14, height: 1.45),
-              children: [
-                TextSpan(text: "Your connection request has been sent to "),
-                TextSpan(
-                  text: "JN-4892-X7",
-                  style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF111827)),
-                ),
-                TextSpan(text: ". They must approve it before the connection becomes active."),
-              ],
-            ),
-          ),
-          const SizedBox(height: 32),
-
-          // Yellow Info Banner
-          Container(
-            decoration: BoxDecoration(
-              color: const Color(0xFFFFFBEB),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0xFFFEF3C7)),
-            ),
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Row(
-                      children: const [
-                        Icon(Icons.access_time, color: Color(0xFFD97706), size: 16),
-                        SizedBox(width: 8),
-                        Text(
-                          "Pending Approval",
-                          style: TextStyle(
-                            color: Color(0xFF92400E),
-                            fontWeight: FontWeight.bold,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ],
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFEF3C7),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: const Text(
-                        "PENDING",
-                        style: TextStyle(
-                          color: Color(0xFFD97706),
-                          fontSize: 9,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                RichText(
-                  text: const TextSpan(
-                    style: TextStyle(color: Color(0xFF92400E), fontSize: 12, height: 1.4),
-                    children: [
-                      TextSpan(text: "Waiting for the other party to accept. You'll receive a notification once approved. Connection expires in "),
-                      TextSpan(
-                        text: "24 hours",
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      TextSpan(text: " if not approved."),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 48),
-
-          // Action Buttons
+          // Divider
           Row(
-            children: [
-              Expanded(
-                child: SizedBox(
-                  height: 50,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF131522),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      elevation: 0,
-                    ),
-                    onPressed: () {
-                      Navigator.of(context).pop();
-                    },
-                    child: const Text(
-                      "View Dashboard",
-                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
-                    ),
-                  ),
-                ),
+            children: const [
+              Expanded(child: Divider(color: Color(0xFFE5E7EB))),
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16.0),
+                child: Text("Or show your QR code", style: TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold)),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: SizedBox(
-                  height: 50,
-                  child: OutlinedButton(
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: Color(0xFFE5E7EB), width: 1.5),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                    onPressed: () {
-                      setState(() {
-                        _requestSent = false;
-                      });
-                    },
-                    child: const Text(
-                      "Add More",
-                      style: TextStyle(color: Color(0xFF111827), fontWeight: FontWeight.bold, fontSize: 14),
-                    ),
-                  ),
-                ),
-              ),
+              Expanded(child: Divider(color: Color(0xFFE5E7EB))),
             ],
           ),
+          const SizedBox(height: 20),
+
+          // Own QR code
+          GestureDetector(
+            onTap: () {
+              Share.share(
+                "Connect with me on SafeTrace Nearby Alert!\nMy Nearby Alert ID is: $displayId",
+                subject: "Nearby Alert Connection ID",
+              );
+            },
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFFE5E7EB)),
+                boxShadow: [
+                  BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 4)),
+                ],
+              ),
+              child: QrImageView(
+                data: displayId,
+                version: QrVersions.auto,
+                size: 160.0,
+                foregroundColor: const Color(0xFF131522),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            displayId,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+              color: isDark ? Colors.white : const Color(0xFF131522),
+              letterSpacing: 0.5,
+            ),
+          ),
+          const SizedBox(height: 4),
+          const Text("Tap QR code to share your ID", style: TextStyle(fontSize: 12, color: Colors.grey)),
         ],
       ),
     );
   }
-}
-
-// ==========================================
-// Animated Scanning Laser line
-// ==========================================
-class ScanningLaserLine extends StatefulWidget {
-  const ScanningLaserLine({super.key});
-
-  @override
-  State<ScanningLaserLine> createState() => _ScanningLaserLineState();
-}
-
-class _ScanningLaserLineState extends State<ScanningLaserLine>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _animation;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 2),
-    )..repeat(reverse: true);
-
-    _animation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
-    );
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _animation,
-      builder: (context, child) {
-        return Align(
-          alignment: Alignment(0, -1.0 + (_animation.value * 2.0)),
-          child: Container(
-            height: 3,
-            width: double.infinity,
-            margin: const EdgeInsets.symmetric(horizontal: 20),
-            decoration: BoxDecoration(
-              color: const Color(0xFFEF4444),
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFFEF4444).withOpacity(0.8),
-                  blurRadius: 8,
-                  spreadRadius: 2,
-                )
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-// ==========================================
-// Mock QR Code Painter
-// ==========================================
-class QrCodeMockPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = const Color(0xFF111827)
-      ..style = PaintingStyle.fill;
-
-    // Draw the three large corner tracking squares
-    _drawTrackingSquare(canvas, Offset.zero, size.width * 0.3, paint);
-    _drawTrackingSquare(canvas, Offset(size.width * 0.7, 0), size.width * 0.3, paint);
-    _drawTrackingSquare(canvas, Offset(0, size.height * 0.7), size.width * 0.3, paint);
-
-    // Draw mock intermediate small random blocks for QR pattern
-    final double block = size.width / 14;
-    for (int row = 0; row < 14; row++) {
-      for (int col = 0; col < 14; col++) {
-        // Skip corner tracking square areas
-        if (row < 5 && col < 5) continue;
-        if (row < 5 && col >= 9) continue;
-        if (row >= 9 && col < 5) continue;
-
-        // Draw pseudo-random noise
-        if ((row * 7 + col * 3) % 5 == 0 || (row * 3 + col * 11) % 4 == 0) {
-          canvas.drawRect(
-            Rect.fromLTWH(col * block, row * block, block, block),
-            paint,
-          );
-        }
-      }
-    }
-  }
-
-  void _drawTrackingSquare(Canvas canvas, Offset offset, double size, Paint paint) {
-    final double block = size / 7;
-    // Outer square
-    canvas.drawRect(Rect.fromLTWH(offset.dx, offset.dy, size, size), paint);
-    // Inner white space
-    final whitePaint = Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.fill;
-    canvas.drawRect(
-      Rect.fromLTWH(offset.dx + block, offset.dy + block, size - block * 2, size - block * 2),
-      whitePaint,
-    );
-    // Inner center square
-    canvas.drawRect(
-      Rect.fromLTWH(offset.dx + block * 2, offset.dy + block * 2, size - block * 4, size - block * 4),
-      paint,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

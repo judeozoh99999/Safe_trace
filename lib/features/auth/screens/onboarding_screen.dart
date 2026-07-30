@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../shared/widgets/custom_buttons.dart';
@@ -50,10 +51,14 @@ class OnboardingScreen extends ConsumerWidget {
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   TextButton(
-                    onPressed: () {
-                      Navigator.of(context).pushReplacement(
-                        MaterialPageRoute(builder: (_) => const LoginScreen()),
-                      );
+                    onPressed: () async {
+                      final prefs = await SharedPreferences.getInstance();
+                      await prefs.setBool('onboarding_completed', true);
+                      if (context.mounted) {
+                        Navigator.of(context).pushReplacement(
+                          MaterialPageRoute(builder: (_) => const LoginScreen()),
+                        );
+                      }
                     },
                     child: Text(
                       "Skip",
@@ -117,16 +122,20 @@ class OnboardingScreen extends ConsumerWidget {
                         : (pageIndex == 1 ? "Continue" : "Set Up My Circle"),
                     type: pageIndex == 1 ? ButtonType.secondary : ButtonType.primary,
                     icon: Icons.arrow_forward_ios_rounded,
-                    onPressed: () {
+                    onPressed: () async {
                       if (pageIndex < 2) {
                         pageController.nextPage(
                           duration: const Duration(milliseconds: 300),
                           curve: Curves.easeInOut,
                         );
                       } else {
-                        Navigator.of(context).pushReplacement(
-                          MaterialPageRoute(builder: (_) => const LoginScreen()),
-                        );
+                        final prefs = await SharedPreferences.getInstance();
+                        await prefs.setBool('onboarding_completed', true);
+                        if (context.mounted) {
+                          Navigator.of(context).pushReplacement(
+                            MaterialPageRoute(builder: (_) => const LoginScreen()),
+                          );
+                        }
                       }
                     },
                   ),

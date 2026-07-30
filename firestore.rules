@@ -1,0 +1,83 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Users collection rules
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+      
+      // Favourites subcollection
+      match /favourites/{favId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+      
+      // Contacts subcollection
+      match /contacts/{contactId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+      
+      // Locations subcollection
+      match /locations/{locId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+      
+      // Location logs subcollection
+      match /location_logs/{logId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+    }
+
+    // Nearby connections collection rules
+    match /nearby_connections/{connId} {
+      allow read, write: if request.auth != null && 
+        (request.auth.uid == resource.data.requester_uid || 
+         request.auth.uid == resource.data.recipient_uid ||
+         request.auth.uid == request.resource.data.requester_uid ||
+         request.auth.uid == request.resource.data.recipient_uid);
+    }
+    
+    // Nearby sessions collection rules
+    match /nearby_sessions/{sessId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // active_panics collection rules
+    match /active_panics/{panicId} {
+      // Any authenticated user can read if their UID is in the notified_contacts array
+      allow read: if request.auth != null && request.auth.uid in resource.data.notified_contacts;
+      
+      // Only the document owner identified by the uid field can create
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.uid;
+      
+      // Only the document owner can update (including setting is_active to false)
+      allow update: if request.auth != null && 
+        request.auth.uid == resource.data.uid && 
+        request.auth.uid == request.resource.data.uid;
+        
+      allow delete: if false;
+    }
+
+    // community_notes collection rules
+    match /community_notes/{noteId} {
+      // Any authenticated user can read all documents where is_visible is true
+      allow read: if request.auth != null && resource.data.is_visible == true;
+      
+      // An authenticated user can create only if uid matches their own UID
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.uid;
+      
+      // No user can edit another user's document
+      allow update: if false;
+      
+      // An authenticated user can delete only if uid matches their own UID
+      allow delete: if request.auth != null && request.auth.uid == resource.data.uid;
+    }
+
+    // nearby_alert_events collection rules
+    match /nearby_alert_events/{eventId} {
+      // User can read only if their UID appears in the visible_to array
+      allow read: if request.auth != null && request.auth.uid in resource.data.visible_to;
+      // No user can create/update/delete directly - managed by Cloud Functions / backend
+      allow create, update, delete: if false;
+    }
+  }
+}

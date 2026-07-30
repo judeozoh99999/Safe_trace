@@ -27,7 +27,7 @@ class SafeTracePlusScreen extends StatelessWidget {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: const [
-                        Icon(Icons.auto_awesome, size: 14, color: Color(0xFFEF4444)),
+                        Icon(Icons.star_rounded, size: 14, color: Color(0xFFEF4444)),
                         SizedBox(width: 6),
                         Text(
                           "SafeTrace Plus",
@@ -156,7 +156,7 @@ class SafeTracePlusScreen extends StatelessWidget {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: const [
-                      Icon(Icons.auto_awesome, color: Colors.white, size: 16),
+                      Icon(Icons.rocket_launch_rounded, color: Colors.white, size: 16),
                       SizedBox(width: 8),
                       Text(
                         "Start Free Trial",

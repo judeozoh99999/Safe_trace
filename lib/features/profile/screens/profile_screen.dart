@@ -1,6 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'profile_detail_screens.dart';
 import 'safetrace_plus_screen.dart';
+import '../../auth/providers/auth_provider.dart';
+import '../../location/providers/home_provider.dart';
+import '../../contacts/providers/trusted_contacts_provider.dart';
+import '../../../core/theme/theme_provider.dart';
+import '../../../core/theme/app_colors.dart';
 
 Route _createRoute(Widget page) {
   return PageRouteBuilder(
@@ -23,25 +29,46 @@ Route _createRoute(Widget page) {
   );
 }
 
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final authState = ref.watch(authNotifierProvider);
+    final homeState = ref.watch(homeProvider);
+
+    final userName = authState.displayName.isEmpty ? 'User' : authState.displayName;
+    final userPhone = authState.phoneNumber.isEmpty ? 'No phone set' : authState.phoneNumber;
+    final String initials;
+    if (authState.firstName.isEmpty && authState.lastName.isEmpty) {
+      initials = 'U';
+    } else {
+      final fLetter = authState.firstName.isNotEmpty ? authState.firstName[0] : '';
+      final lLetter = authState.lastName.isNotEmpty ? authState.lastName[0] : '';
+      initials = "$fLetter$lLetter".toUpperCase();
+    }
+
+    // Calculate days protected
+    final created = authState.createdAt;
+    final int daysProtectedVal = created != null
+        ? DateTime.now().difference(created).inDays
+        : 0;
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF9FAFB),
+      backgroundColor: isDark ? AppColors.backgroundDark : const Color(0xFFF9FAFB),
       body: SafeArea(
         child: Column(
           children: [
             // Center Header "Profile"
-            const Padding(
-              padding: EdgeInsets.only(top: 16.0, bottom: 12.0),
+            Padding(
+              padding: const EdgeInsets.only(top: 16.0, bottom: 12.0),
               child: Text(
                 "Profile",
                 style: TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.w900,
-                  color: Color(0xFF111827),
+                  color: isDark ? Colors.white : const Color(0xFF111827),
                 ),
               ),
             ),
@@ -55,12 +82,15 @@ class ProfileScreen extends StatelessWidget {
                     Container(
                       width: double.infinity,
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: isDark ? AppColors.cardDark : Colors.white,
                         borderRadius: BorderRadius.circular(24),
-                        border: Border.all(color: const Color(0xFFE5E7EB)),
+                        border: Border.all(
+                          color: isDark ? AppColors.dividerDark : const Color(0xFFE5E7EB),
+                          width: 1.5,
+                        ),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withOpacity(0.02),
+                            color: Colors.black.withOpacity(isDark ? 0.2 : 0.02),
                             blurRadius: 10,
                             offset: const Offset(0, 4),
                           )
@@ -73,14 +103,14 @@ class ProfileScreen extends StatelessWidget {
                           Container(
                             width: 80,
                             height: 80,
-                            decoration: const BoxDecoration(
-                              color: Color(0xFF131522), // Dark Navy
+                            decoration: BoxDecoration(
+                              color: isDark ? const Color(0xFF1F2937) : const Color(0xFF131522), // Dark Navy
                               shape: BoxShape.circle,
                             ),
                             alignment: Alignment.center,
-                            child: const Text(
-                              "VO",
-                              style: TextStyle(
+                            child: Text(
+                              initials,
+                              style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 26,
                                 fontWeight: FontWeight.bold,
@@ -89,116 +119,97 @@ class ProfileScreen extends StatelessWidget {
                           ),
                           const SizedBox(height: 12),
                           // Name
-                          const Text(
-                            "Voke Okoro-na-me",
+                          Text(
+                            userName,
                             style: TextStyle(
                               fontSize: 20,
                               fontWeight: FontWeight.w800,
-                              color: Color(0xFF111827),
+                              color: isDark ? Colors.white : const Color(0xFF111827),
                             ),
                           ),
                           const SizedBox(height: 4),
                           // Phone
                           Row(
                             mainAxisAlignment: MainAxisAlignment.center,
-                            children: const [
-                              Icon(Icons.phone, size: 14, color: Color(0xFF6B7280)),
-                              SizedBox(width: 6),
+                            children: [
+                              Icon(Icons.phone, size: 14, color: isDark ? AppColors.textDarkSecondary : const Color(0xFF6B7280)),
+                              const SizedBox(width: 6),
                               Text(
-                                "+234 802 345 6789",
+                                userPhone,
                                 style: TextStyle(
-                                  color: Color(0xFF6B7280),
+                                  color: isDark ? AppColors.textDarkSecondary : const Color(0xFF6B7280),
                                   fontSize: 14,
                                   fontWeight: FontWeight.w500,
                                 ),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 12),
-                          // Get SafeTrace Plus Button (Full width)
-                          SizedBox(
-                            width: double.infinity,
-                            height: 48,
-                            child: ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFFEF4444),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(24),
-                                ),
-                                elevation: 0,
-                              ),
-                              onPressed: () {
-                                Navigator.of(context).push(_createRoute(const SafeTracePlusScreen()));
-                              },
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: const [
-                                  Icon(Icons.auto_awesome, size: 16, color: Colors.white),
-                                  SizedBox(width: 8),
-                                  Text(
-                                    "Get SafeTrace Plus",
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.w900,
-                                      fontSize: 14,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
+                          const SizedBox(height: 16),
+                          // Get SafeTrace Plus Button (Full width) - Now Pulsating!
+                          PulsingButton(
+                            onPressed: () {
+                              Navigator.of(context).push(_createRoute(const SafeTracePlusScreen()));
+                            },
                           ),
                         ],
                       ),
                     ),
                     const SizedBox(height: 16),
 
-                    // Stats Row
-                    Row(
-                      children: [
-                        _buildStatBox("247", "Days Protected"),
-                        const SizedBox(width: 8),
-                        _buildStatBox("38", "Locations Logged"),
-                        const SizedBox(width: 8),
-                        _buildStatBox("3", "Trusted Contacts"),
-                      ],
-                    ),
-                    const SizedBox(height: 24),
+                    // Stats Row & Trusted Contacts Count
+                    Builder(
+                      builder: (context) {
+                        final trustedCountAsync = ref.watch(trustedContactsCountProvider);
 
-                    // SAFETY GROUP
-                    _buildGroupHeader("SAFETY"),
-                    _buildMenuItem(
-                      icon: Icons.people_outline_rounded,
-                      title: "Trusted Contacts",
-                      subtitle: "3 contacts added",
-                      iconBg: const Color(0xFFEEF2FF),
-                      iconColor: const Color(0xFF4F46E5),
-                      badge: Container(
-                        padding: const EdgeInsets.all(5),
-                        decoration: const BoxDecoration(
-                          color: Color(0xFFEB444E), // red notification
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Text(
-                          "1",
-                          style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                      rightLabel: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFEE2E2),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: const Text(
-                          "High Alert",
-                          style: TextStyle(color: Color(0xFFEF4444), fontSize: 10, fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                      onTap: () {
-                        Navigator.of(context).push(_createRoute(const TrustedCircleScreen()));
+                        final String statDisplay = trustedCountAsync.when(
+                          data: (total) => "$total",
+                          loading: () => "-",
+                          error: (err, stack) => "?",
+                        );
+
+                        final String subtitleText = trustedCountAsync.when(
+                          data: (total) {
+                            if (total == 0) return "No contacts added yet";
+                            if (total == 1) return "1 active contact added";
+                            return "$total active contacts added";
+                          },
+                          loading: () => "Loading contacts...",
+                          error: (err, stack) => "No contacts added yet",
+                        );
+
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                _buildStatBox(context, "$daysProtectedVal", "Days Protected"),
+                                const SizedBox(width: 8),
+                                _buildStatBox(context, "${homeState.logs.length}", "Locations Logged"),
+                                const SizedBox(width: 8),
+                                _buildStatBox(context, statDisplay, "Trusted Contacts"),
+                              ],
+                            ),
+                            const SizedBox(height: 24),
+
+                            // SAFETY GROUP
+                            _buildGroupHeader("SAFETY"),
+                            _buildMenuItem(
+                              context,
+                              icon: Icons.people_outline_rounded,
+                              title: "Trusted Contacts",
+                              subtitle: subtitleText,
+                              iconBg: const Color(0xFFEEF2FF),
+                              iconColor: const Color(0xFF4F46E5),
+                              onTap: () {
+                                Navigator.of(context).push(_createRoute(const TrustedCircleScreen()));
+                              },
+                            ),
+                          ],
+                        );
                       },
                     ),
                     _buildMenuItem(
+                      context,
                       icon: Icons.info_outline_rounded,
                       title: "Check-In Alert",
                       subtitle: "Track 3-Day Inactive Users",
@@ -212,7 +223,9 @@ class ProfileScreen extends StatelessWidget {
 
                     // PREFERENCES GROUP
                     _buildGroupHeader("PREFERENCES"),
+                    _buildThemeToggleItem(context, ref),
                     _buildMenuItem(
+                      context,
                       icon: Icons.notifications_none,
                       title: "Notification Preferences",
                       subtitle: "Alerts, check-ins, updates",
@@ -223,6 +236,7 @@ class ProfileScreen extends StatelessWidget {
                       },
                     ),
                     _buildMenuItem(
+                      context,
                       icon: Icons.shield_outlined,
                       title: "Privacy & Data",
                       subtitle: "Location sharing, data retention",
@@ -237,6 +251,7 @@ class ProfileScreen extends StatelessWidget {
                     // SUPPORT GROUP
                     _buildGroupHeader("SUPPORT"),
                     _buildMenuItem(
+                      context,
                       icon: Icons.help_outline_rounded,
                       title: "Help & Support",
                       subtitle: "FAQs, contact SafeTrace team",
@@ -251,6 +266,7 @@ class ProfileScreen extends StatelessWidget {
                     // DANGER ZONE GROUP
                     _buildGroupHeader("DANGER ZONE", isDanger: true),
                     _buildMenuItem(
+                      context,
                       icon: Icons.logout_rounded,
                       title: "Sign Out",
                       subtitle: "You'll need to verify your number again",
@@ -261,6 +277,7 @@ class ProfileScreen extends StatelessWidget {
                       },
                     ),
                     _buildMenuItem(
+                      context,
                       icon: Icons.delete_outline_rounded,
                       title: "Delete Account",
                       subtitle: "Permanently delete all your data",
@@ -273,11 +290,11 @@ class ProfileScreen extends StatelessWidget {
                     const SizedBox(height: 32),
 
                     // Footer
-                    const Text(
+                    Text(
                       "SafeTrace v2.4.1 · Made with care for Nigeria 🇳🇬",
                       style: TextStyle(
                         fontSize: 12,
-                        color: Color(0xFF9CA3AF),
+                        color: isDark ? AppColors.textDarkSecondary : const Color(0xFF9CA3AF),
                         fontWeight: FontWeight.w500,
                       ),
                     ),
@@ -292,31 +309,87 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildStatBox(String val, String label) {
+  Widget _buildThemeToggleItem(BuildContext context, WidgetRef ref) {
+    final themeMode = ref.watch(themeModeProvider);
+    final isDark = themeMode == ThemeMode.dark;
+    final appIsDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: appIsDark ? const Color(0xFF1C1E2D) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: appIsDark ? const Color(0xFF282B40) : const Color(0xFFE5E7EB),
+          width: 1.5,
+        ),
+      ),
+      child: SwitchListTile(
+        value: isDark,
+        onChanged: (val) {
+          ref.read(themeModeProvider.notifier).toggleTheme(val);
+        },
+        title: Text(
+          "Dark Mode",
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 14,
+            color: appIsDark ? Colors.white : const Color(0xFF111827),
+          ),
+        ),
+        subtitle: Text(
+          "Switch between light and dark themes",
+          style: TextStyle(
+            fontSize: 12,
+            color: appIsDark ? AppColors.textDarkSecondary : const Color(0xFF6B7280),
+          ),
+        ),
+        secondary: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: const Color(0xFFEEF2FF),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: const Icon(
+            Icons.dark_mode_outlined,
+            color: Color(0xFF4F46E5),
+            size: 20,
+          ),
+        ),
+        activeColor: const Color(0xFF4F46E5),
+      ),
+    );
+  }
+
+  Widget _buildStatBox(BuildContext context, String val, String label) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Expanded(
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: isDark ? const Color(0xFF1C1E2D) : Colors.white,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFFE5E7EB)),
+          border: Border.all(
+            color: isDark ? const Color(0xFF282B40) : const Color(0xFFE5E7EB),
+            width: 1.5,
+          ),
         ),
         padding: const EdgeInsets.symmetric(vertical: 14),
         child: Column(
           children: [
             Text(
               val,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.w900,
-                color: Color(0xFF111827),
+                color: isDark ? Colors.white : const Color(0xFF111827),
               ),
             ),
             const SizedBox(height: 4),
             Text(
               label,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 11,
-                color: Color(0xFF6B7280),
+                color: isDark ? AppColors.textDarkSecondary : const Color(0xFF6B7280),
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -344,7 +417,8 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildMenuItem({
+  Widget _buildMenuItem(
+    BuildContext context, {
     required IconData icon,
     required String title,
     required String subtitle,
@@ -354,32 +428,36 @@ class ProfileScreen extends StatelessWidget {
     Widget? rightLabel,
     required VoidCallback onTap,
   }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isDark ? const Color(0xFF1C1E2D) : Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE5E7EB)),
+        border: Border.all(
+          color: isDark ? const Color(0xFF282B40) : const Color(0xFFE5E7EB),
+          width: 1.5,
+        ),
       ),
       child: ListTile(
         onTap: onTap,
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         leading: Container(
           decoration: BoxDecoration(
-            color: iconBg,
+            color: isDark ? const Color(0xFF1F2937) : iconBg,
             borderRadius: BorderRadius.circular(10),
           ),
           padding: const EdgeInsets.all(8),
-          child: Icon(icon, color: iconColor, size: 20),
+          child: Icon(icon, color: isDark ? AppColors.primary : iconColor, size: 20),
         ),
         title: Row(
           children: [
             Text(
               title,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w800,
-                color: Color(0xFF111827),
+                color: isDark ? Colors.white : const Color(0xFF111827),
               ),
             ),
             if (badge != null) ...[
@@ -390,9 +468,9 @@ class ProfileScreen extends StatelessWidget {
         ),
         subtitle: Text(
           subtitle,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 11,
-            color: Color(0xFF6B7280),
+            color: isDark ? AppColors.textDarkSecondary : const Color(0xFF6B7280),
             fontWeight: FontWeight.w500,
           ),
         ),
@@ -405,6 +483,88 @@ class ProfileScreen extends StatelessWidget {
             ],
             const Icon(Icons.arrow_forward_ios_rounded, color: Color(0xFF9CA3AF), size: 14),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class PulsingButton extends StatefulWidget {
+  final VoidCallback onPressed;
+  const PulsingButton({super.key, required this.onPressed});
+
+  @override
+  State<PulsingButton> createState() => _PulsingButtonState();
+}
+
+class _PulsingButtonState extends State<PulsingButton> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _scaleAnimation;
+  late Animation<double> _opacityAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    )..repeat(reverse: true);
+
+    _scaleAnimation = Tween<double>(begin: 1.0, end: 1.05).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+    );
+
+    _opacityAnimation = Tween<double>(begin: 1.0, end: 0.85).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        return Transform.scale(
+          scale: _scaleAnimation.value,
+          child: Opacity(
+            opacity: _opacityAnimation.value,
+            child: child,
+          ),
+        );
+      },
+      child: SizedBox(
+        width: double.infinity,
+        height: 48,
+        child: ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFFEF4444),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(24),
+            ),
+            elevation: 0,
+          ),
+          onPressed: widget.onPressed,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: const [
+              Icon(Icons.shield_rounded, size: 16, color: Colors.white),
+              SizedBox(width: 8),
+              Text(
+                "Get SafeTrace Plus",
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 14,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
