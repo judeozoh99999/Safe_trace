@@ -13,6 +13,8 @@ import 'sentinel/screens/watch_mode_screen.dart';
 import 'profile/screens/profile_screen.dart';
 import 'panic/screens/panic_interrupt_screen.dart';
 
+import '../core/services/session_service.dart';
+
 final homeShellIndexProvider = StateProvider<int>((ref) => 0);
 
 class HomeShell extends ConsumerStatefulWidget {
@@ -22,7 +24,7 @@ class HomeShell extends ConsumerStatefulWidget {
   ConsumerState<HomeShell> createState() => _HomeShellState();
 }
 
-class _HomeShellState extends ConsumerState<HomeShell> {
+class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserver {
   StreamSubscription? _panicAlertSubscription;
   bool _isInterruptShowing = false;
 
@@ -37,11 +39,28 @@ class _HomeShellState extends ConsumerState<HomeShell> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _listenToIncomingPanics();
+    _initSessionMonitor();
+  }
+
+  void _initSessionMonitor() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      SessionService.listenToSession(ref, user.uid);
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      SessionService.checkSessionOnResume(ref);
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _panicAlertSubscription?.cancel();
     super.dispose();
   }

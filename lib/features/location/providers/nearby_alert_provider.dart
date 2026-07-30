@@ -244,7 +244,7 @@ class NearbyAlertNotifier extends AsyncNotifier<NearbyAlertState> {
     int pending = 0;
 
     for (final conn in list) {
-      if (conn.status == 'active') active++;
+      if (conn.status == 'active' || conn.status == 'accepted') active++;
       if (conn.status == 'expiring') expiring++;
       if (conn.status == 'pending') pending++;
     }

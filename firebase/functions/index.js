@@ -121,7 +121,7 @@ function getDistance(lat1, lon1, lat2, lon2) {
 }
 
 async function runDistanceCheck() {
-  const connectionsSnap = await db.collection('nearby_connections').where('status', 'in', ['active', 'expiring']).get();
+  const connectionsSnap = await db.collection('nearby_connections').where('status', 'in', ['active', 'expiring', 'accepted']).get();
   if (connectionsSnap.empty) return;
 
   const messaging = admin.messaging();
@@ -355,6 +355,9 @@ exports.onNearbyConnectionStatusChange = functions.firestore.document('nearby_co
 
     console.log(`Nearby Connection ${connId} accepted between ${reqUid} and ${recUid}`);
     
+    // Always transition transient 'accepted' status to 'active' for proximity tracking
+    await change.after.ref.update({ status: 'active' });
+
     // Check if nearby_alert_events record already written
     const existingEvent = await db.collection('nearby_alert_events').where('connection_id', '==', connId).get();
     if (!existingEvent.empty) {

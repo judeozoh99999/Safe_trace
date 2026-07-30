@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/foundation.dart';
+import '../../../core/services/session_service.dart';
 
 final firebaseAuthProvider = Provider<FirebaseAuth>((ref) => FirebaseAuth.instance);
 final firestoreProvider = Provider<FirebaseFirestore>((ref) => FirebaseFirestore.instance);
@@ -407,6 +408,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
           'walletBalance': 0.0,
         });
 
+        // Generate & store active_session_token for single device enforcement
+        await SessionService.createSessionOnSignIn(user.uid);
+
         state = state.copyWith(isLoading: false, isAuthenticated: true);
       }
     } catch (e) {
@@ -433,6 +437,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
           'lastActive': FieldValue.serverTimestamp(),
         });
 
+        // Generate & store active_session_token for single device enforcement
+        await SessionService.createSessionOnSignIn(user.uid);
+
         state = state.copyWith(isLoading: false, isAuthenticated: true);
       }
     } catch (e) {
@@ -444,7 +451,12 @@ class AuthNotifier extends StateNotifier<AuthState> {
   Future<void> signOut() async {
     _profileSubscription?.cancel();
     _profileSubscription = null;
-    await _auth.signOut();
+    final current = _auth.currentUser;
+    if (current != null) {
+      await SessionService.clearSessionOnSignOut(current.uid);
+    } else {
+      await _auth.signOut();
+    }
     state = AuthState();
   }
 

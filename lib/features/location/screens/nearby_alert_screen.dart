@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'add_connection_screen.dart';
 import '../providers/nearby_alert_provider.dart';
 import '../../../core/theme/app_colors.dart';
@@ -77,7 +78,7 @@ class _NearbyAlertScreenState extends ConsumerState<NearbyAlertScreen> {
           child: Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: const Color(0xFF1E1B4B), // Indigo Dark
+              color: const Color(0xFF1E1B4B),
               borderRadius: BorderRadius.circular(16),
               boxShadow: [
                 BoxShadow(
@@ -231,13 +232,21 @@ class _NearbyAlertScreenState extends ConsumerState<NearbyAlertScreen> {
                           color: isDark ? Colors.white : const Color(0xFF111827),
                         ),
                       ),
-                      const Text(
-                        "Live GPS tracking",
-                        style: TextStyle(fontSize: 12, color: Color(0xFF9CA3AF), fontWeight: FontWeight.w500),
+                      const Row(
+                        children: [
+                          _PulsingIndicator(color: Color(0xFF10B981), size: 12),
+                          SizedBox(width: 6),
+                          Text(
+                            "Live GPS tracking",
+                            style: TextStyle(fontSize: 12, color: Color(0xFF9CA3AF), fontWeight: FontWeight.w500),
+                          ),
+                        ],
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 8),
+                  const Divider(height: 1, thickness: 1, color: Color(0xFFE5E7EB)),
+                  const SizedBox(height: 16),
 
                   // Connection list
                   if (activeConns.isEmpty)
@@ -249,7 +258,11 @@ class _NearbyAlertScreenState extends ConsumerState<NearbyAlertScreen> {
                       itemCount: activeConns.length,
                       separatorBuilder: (_, __) => const SizedBox(height: 12),
                       itemBuilder: (context, index) {
-                        return _buildConnectionCard(activeConns[index], isDark);
+                        final card = _buildConnectionCard(activeConns[index], isDark);
+                        return card
+                            .animate()
+                            .fadeIn(delay: (100 * index).ms, duration: 400.ms)
+                            .slideY(begin: 0.15, end: 0, delay: (100 * index).ms, duration: 400.ms, curve: Curves.easeOut);
                       },
                     ),
                 ],
@@ -258,40 +271,7 @@ class _NearbyAlertScreenState extends ConsumerState<NearbyAlertScreen> {
           ),
 
           // Bottom Add Connection button
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color: isDark ? AppColors.cardDark : Colors.white,
-              border: Border(top: BorderSide(color: isDark ? AppColors.dividerDark : const Color(0xFFE5E7EB))),
-            ),
-            child: SizedBox(
-              width: double.infinity,
-              height: 50,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: isDark ? AppColors.primary : const Color(0xFF131522),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  elevation: 0,
-                ),
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const AddConnectionScreen()),
-                  );
-                },
-                child: const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.add, color: Colors.white, size: 20),
-                    SizedBox(width: 8),
-                    Text(
-                      "Add Connection",
-                      style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
+          _buildAddConnectionButton(activeConns.length, isDark),
         ],
       ),
     );
@@ -302,7 +282,9 @@ class _NearbyAlertScreenState extends ConsumerState<NearbyAlertScreen> {
   }
 
   Widget _buildStatusBanner(bool isSessionOn, List<NearbyConnection> activeConns, bool isDark) {
-    if (!isSessionOn) {
+    final activeCount = activeConns.where((c) => c.status == 'active' || c.status == 'expiring' || c.status == 'accepted').length;
+
+    if (!isSessionOn || activeCount == 0) {
       return Container(
         width: double.infinity,
         padding: const EdgeInsets.all(16),
@@ -313,62 +295,45 @@ class _NearbyAlertScreenState extends ConsumerState<NearbyAlertScreen> {
         ),
         child: Row(
           children: [
-            const Icon(Icons.visibility_off_rounded, color: Colors.grey),
-            const SizedBox(width: 12),
-            const Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text("You are hidden", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                  SizedBox(height: 2),
-                  Text("Nearby Alert is inactive.", style: TextStyle(fontSize: 12, color: Colors.grey)),
-                ],
+            Container(
+              width: 14,
+              height: 14,
+              decoration: const BoxDecoration(
+                color: Color(0xFF9CA3AF),
+                shape: BoxShape.circle,
               ),
             ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF4F46E5),
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              ),
-              onPressed: () => ref.read(nearbyAlertProvider.notifier).startSession(),
-              child: const Text("Activate"),
-            ),
-          ],
-        ),
-      );
-    }
-
-    final activeCount = activeConns.where((c) => c.status == 'active' || c.status == 'expiring').length;
-    if (activeCount > 0) {
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: const Color(0xFFE8F5E9),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFFC8E6C9)),
-        ),
-        child: Row(
-          children: [
-            _PulsingIndicator(color: const Color(0xFF10B981)),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    "Active · $activeCount connection${activeCount > 1 ? 's' : ''}",
-                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: Color(0xFF1B5E20)),
+                    "Your proximity network is offline",
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                      color: isDark ? Colors.white : const Color(0xFF374151),
+                    ),
                   ),
                   const SizedBox(height: 2),
-                  const Text(
-                    "Your proximity network is live",
-                    style: TextStyle(fontSize: 12, color: Color(0xFF2E7D32), fontWeight: FontWeight.w500),
+                  Text(
+                    !isSessionOn ? "Nearby Alert is inactive." : "No active connections nearby.",
+                    style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
                   ),
                 ],
               ),
             ),
+            if (!isSessionOn)
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF4F46E5),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                onPressed: () => ref.read(nearbyAlertProvider.notifier).startSession(),
+                child: const Text("Activate"),
+              ),
           ],
         ),
       );
@@ -378,26 +343,26 @@ class _NearbyAlertScreenState extends ConsumerState<NearbyAlertScreen> {
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFFEFF6FF),
+        color: const Color(0xFFE8F5E9),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFDBEAFE)),
+        border: Border.all(color: const Color(0xFFC8E6C9)),
       ),
-      child: const Row(
+      child: Row(
         children: [
-          Icon(Icons.radar_rounded, color: Color(0xFF2563EB)),
-          SizedBox(width: 12),
+          const _PulsingIndicator(color: Color(0xFF2D9B5A), size: 20),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  "You are visible",
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: Color(0xFF1E40AF)),
+                  "Active · $activeCount connection${activeCount > 1 ? 's' : ''}",
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: Color(0xFF1B5E20)),
                 ),
-                SizedBox(height: 2),
-                Text(
-                  "No active connections yet.",
-                  style: TextStyle(fontSize: 12, color: Color(0xFF2563EB), fontWeight: FontWeight.w500),
+                const SizedBox(height: 2),
+                const Text(
+                  "Your proximity network is live",
+                  style: TextStyle(fontSize: 12, color: Color(0xFF2E7D32), fontWeight: FontWeight.w500),
                 ),
               ],
             ),
@@ -413,43 +378,98 @@ class _NearbyAlertScreenState extends ConsumerState<NearbyAlertScreen> {
     int pending = 0;
 
     for (final c in activeConns) {
-      if (c.status == 'active') active++;
+      if (c.status == 'active' || c.status == 'accepted') active++;
       if (c.status == 'expiring') expiring++;
       if (c.status == 'pending') pending++;
     }
 
     return Row(
       children: [
-        _buildStatBox(active.toString(), "Active", const Color(0xFFE8F5E9), const Color(0xFF2E7D32)),
+        // Active Box
+        _buildStatCard(
+          val: active.toString(),
+          label: "Active",
+          bg: const Color(0xFFE8F5E9),
+          textCol: const Color(0xFF2D9B5A),
+          topRightWidget: const _PulsingIndicator(color: Color(0xFF2D9B5A), size: 12),
+        ),
         const SizedBox(width: 8),
-        _buildStatBox(expiring.toString(), "Expiring", const Color(0xFFFFF3E0), const Color(0xFFE65100)),
+
+        // Expiring Box
+        _buildStatCard(
+          val: expiring.toString(),
+          label: "Expiring",
+          bg: const Color(0xFFFFF8E1),
+          textCol: const Color(0xFFF59E0B),
+          topRightWidget: const Icon(Icons.timer_outlined, size: 14, color: Color(0xFFF59E0B)),
+          hasGlowBorder: expiring > 0,
+        ),
         const SizedBox(width: 8),
-        _buildStatBox(pending.toString(), "Pending", const Color(0xFFFFFDE7), const Color(0xFFF57F17)),
+
+        // Pending Box
+        _buildStatCard(
+          val: pending.toString(),
+          label: "Pending",
+          bg: const Color(0xFFE3F2FD),
+          textCol: const Color(0xFF2C3E6B),
+          topRightWidget: const _RotatingHourglass(color: Color(0xFF2C3E6B), size: 14),
+        ),
         const SizedBox(width: 8),
-        _buildStatBox("${state.radius}m", "Radius", const Color(0xFFF3E5F5), const Color(0xFF7B1FA2)),
+
+        // Radius Box
+        _buildStatCard(
+          val: "${state.radius}m",
+          label: "Radius",
+          bg: const Color(0xFFF3E5F5),
+          textCol: const Color(0xFF7B2D8B),
+          topRightWidget: const Icon(Icons.radar_rounded, size: 14, color: Color(0xFF7B2D8B)),
+        ),
       ],
     );
   }
 
-  Widget _buildStatBox(String val, String label, Color bg, Color textCol) {
+  Widget _buildStatCard({
+    required String val,
+    required String label,
+    required Color bg,
+    required Color textCol,
+    required Widget topRightWidget,
+    bool hasGlowBorder = false,
+  }) {
     return Expanded(
       child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
         decoration: BoxDecoration(
           color: bg,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: textCol.withOpacity(0.12)),
+          border: hasGlowBorder
+              ? Border.all(color: const Color(0xFFF59E0B), width: 1.5)
+              : Border.all(color: textCol.withValues(alpha: 0.12)),
+          boxShadow: [
+            BoxShadow(
+              color: hasGlowBorder ? const Color(0x40F59E0B) : Colors.black.withValues(alpha: 0.05),
+              blurRadius: hasGlowBorder ? 8 : 4,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
-        padding: const EdgeInsets.symmetric(vertical: 12),
         child: Column(
           children: [
-            Text(
-              val,
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: textCol),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const SizedBox(width: 14),
+                Text(
+                  val,
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: textCol),
+                ),
+                topRightWidget,
+              ],
             ),
             const SizedBox(height: 2),
             Text(
               label,
-              style: TextStyle(fontSize: 11, color: textCol.withOpacity(0.8), fontWeight: FontWeight.bold),
+              style: TextStyle(fontSize: 11, color: textCol.withValues(alpha: 0.85), fontWeight: FontWeight.bold),
             ),
           ],
         ),
@@ -477,7 +497,7 @@ class _NearbyAlertScreenState extends ConsumerState<NearbyAlertScreen> {
           ),
           SizedBox(height: 6),
           Text(
-            "Taps Add Connection below to connect with people, venues, or responders within 20 metres.",
+            "Tap Add Connection below to connect with people, venues, or responders within 20 metres.",
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 12, color: Colors.grey, height: 1.4),
           ),
@@ -487,8 +507,9 @@ class _NearbyAlertScreenState extends ConsumerState<NearbyAlertScreen> {
   }
 
   Widget _buildConnectionCard(NearbyConnection conn, bool isDark) {
-    final names = conn.requesterUid == FirebaseAuth.instance.currentUser?.uid ? conn.recipientName.split(' ') : conn.requesterName.split(' ');
-    final displayName = conn.requesterUid == FirebaseAuth.instance.currentUser?.uid ? conn.recipientName : conn.requesterName;
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+    final displayName = conn.requesterUid == currentUserId ? conn.recipientName : conn.requesterName;
+    final names = displayName.split(' ');
     final initials = names.map((n) => n.isNotEmpty ? n[0] : '').take(2).join().toUpperCase();
 
     // Map connection type icon
@@ -496,153 +517,238 @@ class _NearbyAlertScreenState extends ConsumerState<NearbyAlertScreen> {
     if (conn.connectionType == 'Venue') typeIcon = Icons.storefront_rounded;
     if (conn.connectionType == 'Responder') typeIcon = Icons.local_police_rounded;
 
-    // Status Badge colors
-    Color statusColor = Colors.grey;
-    Color statusBg = Colors.grey.withValues(alpha: 0.1);
-    if (conn.status == 'active') {
-      statusColor = const Color(0xFF10B981);
-      statusBg = const Color(0xFFE8F5E9);
-    } else if (conn.status == 'expiring') {
-      statusColor = const Color(0xFFF59E0B);
-      statusBg = const Color(0xFFFFF3E0);
-    } else if (conn.status == 'expired') {
-      statusColor = const Color(0xFFEF4444);
-      statusBg = const Color(0xFFFEE2E2);
-    } else if (conn.status == 'pending') {
-      statusColor = const Color(0xFFF59E0B);
-      statusBg = const Color(0xFFFFFEF0);
+    final status = (conn.status == 'accepted') ? 'active' : conn.status;
+
+    // Distinct Card Styling per State
+    Color cardBg = isDark ? AppColors.cardDark : Colors.white;
+    Color leftStripeColor = const Color(0xFF2D9B5A);
+    Color statusBadgeBg = const Color(0xFFE8F5E9);
+    Color statusBadgeText = const Color(0xFF2D9B5A);
+    Color avatarBg = const Color(0xFFE8F5E9);
+    Color avatarText = const Color(0xFF1B5E20);
+    Color progressColor = const Color(0xFF2D9B5A);
+    Widget? statusBadgeIcon;
+    bool isOutlinedBadge = false;
+
+    if (status == 'active') {
+      cardBg = isDark ? const Color(0xFF1E293B) : Colors.white;
+      leftStripeColor = const Color(0xFF2D9B5A);
+      statusBadgeBg = const Color(0xFF2D9B5A);
+      statusBadgeText = Colors.white;
+      avatarBg = const Color(0xFFE8F5E9);
+      avatarText = const Color(0xFF1B5E20);
+      progressColor = const Color(0xFF2D9B5A);
+      statusBadgeIcon = const _PulsingIndicator(color: Colors.white, size: 8);
+    } else if (status == 'expiring') {
+      cardBg = isDark ? const Color(0xFF2D261E) : const Color(0xFFFFFBF0);
+      leftStripeColor = const Color(0xFFF59E0B);
+      statusBadgeBg = const Color(0xFFF59E0B);
+      statusBadgeText = Colors.white;
+      avatarBg = const Color(0xFFFFF3CD);
+      avatarText = const Color(0xFFB45309);
+      progressColor = const Color(0xFFF59E0B);
+      statusBadgeIcon = const _ShakingIcon(color: Colors.white, size: 12);
+    } else if (status == 'pending') {
+      cardBg = isDark ? const Color(0xFF1E2238) : const Color(0xFFF0F4FF);
+      leftStripeColor = const Color(0xFF2C3E6B);
+      statusBadgeBg = Colors.transparent;
+      statusBadgeText = const Color(0xFF2C3E6B);
+      isOutlinedBadge = true;
+      avatarBg = const Color(0xFFE8EAF6);
+      avatarText = const Color(0xFF2C3E6B);
+      statusBadgeIcon = const _RotatingHourglass(color: Color(0xFF2C3E6B), size: 12);
+    } else if (status == 'expired') {
+      cardBg = isDark ? const Color(0xFF2D1E1E) : const Color(0xFFFFF0F0);
+      leftStripeColor = const Color(0xFFE63946);
+      statusBadgeBg = const Color(0xFFE63946);
+      statusBadgeText = Colors.white;
+      avatarBg = const Color(0xFFFEE2E2);
+      avatarText = const Color(0xFF991B1B);
+      progressColor = const Color(0xFFE63946);
     }
 
-    // Distance bar colors
-    Color progressColor = const Color(0xFF10B981);
-    if (conn.status == 'expiring') progressColor = const Color(0xFFF59E0B);
-    if (conn.status == 'expired') progressColor = const Color(0xFFEF4444);
-
-    final double distancePercent = (conn.lastDistanceMetres / 20.0).clamp(0.0, 1.0);
+    final double distancePercent = status == 'expired' ? 1.0 : (conn.lastDistanceMetres / 20.0).clamp(0.0, 1.0);
 
     return Container(
-      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: isDark ? AppColors.cardDark : Colors.white,
+        color: cardBg,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: isDark ? AppColors.dividerDark : const Color(0xFFE5E7EB)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              CircleAvatar(
-                radius: 20,
-                backgroundColor: isDark ? const Color(0xFF374151) : const Color(0xFFEEF2FF),
-                child: Text(
-                  initials.isEmpty ? 'U' : initials,
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: isDark ? Colors.white : const Color(0xFF4F46E5),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      displayName,
-                      style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
-                    ),
-                    const SizedBox(height: 2),
-                    Row(
-                      children: [
-                        Icon(typeIcon, size: 12, color: Colors.grey),
-                        const SizedBox(width: 4),
-                        Text(
-                          conn.connectionType,
-                          style: const TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.w500),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
+              // Left status stripe
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: statusBg,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  conn.status.toUpperCase(),
-                  style: TextStyle(
-                    color: statusColor,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 9,
+                width: 5,
+                color: leftStripeColor,
+              ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          CircleAvatar(
+                            radius: 20,
+                            backgroundColor: avatarBg,
+                            child: Text(
+                              initials.isEmpty ? 'U' : initials,
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: avatarText,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  displayName,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 14,
+                                    color: isDark ? Colors.white : const Color(0xFF111827),
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Row(
+                                  children: [
+                                    Icon(typeIcon, size: 12, color: Colors.grey),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      conn.connectionType,
+                                      style: const TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.w500),
+                                    ),
+                                  ],
+                                ),
+                                if (status == 'pending') ...[
+                                  const SizedBox(height: 2),
+                                  const Text(
+                                    "Waiting for approval",
+                                    style: TextStyle(fontSize: 12, color: Color(0xFF2C3E6B), fontStyle: FontStyle.italic, fontWeight: FontWeight.w500),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: isOutlinedBadge ? Colors.transparent : statusBadgeBg,
+                              borderRadius: BorderRadius.circular(12),
+                              border: isOutlinedBadge ? Border.all(color: statusBadgeText, width: 1.5) : null,
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (statusBadgeIcon != null) ...[
+                                  statusBadgeIcon,
+                                  const SizedBox(width: 4),
+                                ],
+                                Text(
+                                  status.toUpperCase(),
+                                  style: TextStyle(
+                                    color: statusBadgeText,
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 9,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          const Icon(Icons.chevron_right_rounded, color: Color(0xFF9CA3AF), size: 20),
+                        ],
+                      ),
+
+                      const SizedBox(height: 14),
+
+                      // Distance Row (Not shown for pending state)
+                      if (status != 'pending') ...[
+                        if (status == 'expiring') ...[
+                          const Text(
+                            "approaching limit",
+                            style: TextStyle(fontSize: 12, color: Color(0xFFF59E0B), fontStyle: FontStyle.italic, fontWeight: FontWeight.w600),
+                          ),
+                          const SizedBox(height: 4),
+                        ],
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(4),
+                          child: TweenAnimationBuilder<double>(
+                            duration: const Duration(milliseconds: 500),
+                            curve: Curves.easeOut,
+                            tween: Tween<double>(begin: 0, end: distancePercent),
+                            builder: (context, value, child) {
+                              return LinearProgressIndicator(
+                                value: value,
+                                backgroundColor: isDark ? const Color(0xFF374151) : const Color(0xFFF3F4F6),
+                                color: progressColor,
+                                minHeight: 6,
+                              );
+                            },
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              status == 'expired'
+                                  ? "Connection lost (+${(conn.lastDistanceMetres - 20.0).toStringAsFixed(1)}m over limit)"
+                                  : "${conn.lastDistanceMetres.toStringAsFixed(1)}m out of 20m limit",
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: status == 'expired' ? FontWeight.bold : FontWeight.w500,
+                                color: status == 'expired' ? const Color(0xFFE63946) : Colors.grey,
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (status == 'expired') ...[
+                          const SizedBox(height: 2),
+                          const Text(
+                            "Connection lost",
+                            style: TextStyle(fontSize: 12, color: Color(0xFFE63946), fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                        const SizedBox(height: 12),
+                      ],
+
+                      // Action Buttons
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: _buildCardActionButtons(conn, status),
+                      )
+                    ],
                   ),
                 ),
-              )
+              ),
             ],
           ),
-
-          const SizedBox(height: 16),
-
-          // Distance Row (Not shown for pending state)
-          if (conn.status != 'pending') ...[
-            ClipRRect(
-              borderRadius: BorderRadius.circular(4),
-              child: LinearProgressIndicator(
-                value: distancePercent,
-                backgroundColor: isDark ? const Color(0xFF374151) : const Color(0xFFF3F4F6),
-                color: progressColor,
-                minHeight: 6,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  conn.status == 'expired'
-                      ? "Connection lost (+${(conn.lastDistanceMetres - 20.0).toStringAsFixed(1)}m over limit)"
-                      : "${conn.lastDistanceMetres.toStringAsFixed(1)}m out of 20m limit",
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w500,
-                    color: conn.status == 'expired' ? const Color(0xFFEF4444) : Colors.grey,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-          ] else ...[
-            const Row(
-              children: [
-                Icon(Icons.hourglass_empty, size: 14, color: Colors.grey),
-                SizedBox(width: 6),
-                Text(
-                  "Waiting for approval...",
-                  style: TextStyle(fontSize: 12, color: Colors.grey, fontStyle: FontStyle.italic),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-          ],
-
-          // Buttons
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: _buildCardActionButtons(conn),
-          )
-        ],
+        ),
       ),
     );
   }
 
-  List<Widget> _buildCardActionButtons(NearbyConnection conn) {
+  List<Widget> _buildCardActionButtons(NearbyConnection conn, String status) {
     final currentUserId = FirebaseAuth.instance.currentUser?.uid;
     final isRequester = conn.requesterUid == currentUserId;
 
-    if (conn.status == 'pending') {
+    if (status == 'pending') {
       if (isRequester) {
         return [
           OutlinedButton(
@@ -678,26 +784,34 @@ class _NearbyAlertScreenState extends ConsumerState<NearbyAlertScreen> {
       }
     }
 
-    if (conn.status == 'expired') {
+    if (status == 'expired') {
       return [
-        TextButton(
+        OutlinedButton(
+          style: OutlinedButton.styleFrom(
+            side: const BorderSide(color: Colors.grey),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            minimumSize: Size.zero,
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          ),
           onPressed: () => ref.read(nearbyAlertProvider.notifier).declineConnectionRequest(conn.id),
-          child: const Text("Dismiss", style: TextStyle(color: Colors.grey, fontSize: 12)),
+          child: const Icon(Icons.close_rounded, size: 18, color: Colors.grey),
         ),
         const SizedBox(width: 8),
         ElevatedButton(
           style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF4F46E5),
+            backgroundColor: const Color(0xFF111827),
             foregroundColor: Colors.white,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           ),
           onPressed: () => ref.read(nearbyAlertProvider.notifier).renewConnection(conn.id),
-          child: const Text("Reconnect", style: TextStyle(fontSize: 12)),
+          child: const Text("Reconnect", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
         ),
       ];
     }
 
     // Active / Expiring
+    final isExpiring = status == 'expiring';
     return [
       OutlinedButton(
         style: OutlinedButton.styleFrom(
@@ -710,14 +824,64 @@ class _NearbyAlertScreenState extends ConsumerState<NearbyAlertScreen> {
       const SizedBox(width: 8),
       ElevatedButton(
         style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF4F46E5),
+          backgroundColor: isExpiring ? const Color(0xFFF59E0B) : const Color(0xFFEB444E),
           foregroundColor: Colors.white,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
         onPressed: () => ref.read(nearbyAlertProvider.notifier).renewConnection(conn.id),
-        child: const Text("Renew", style: TextStyle(fontSize: 12)),
+        child: const Text("Renew", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
       ),
     ];
+  }
+
+  Widget _buildAddConnectionButton(int totalConnections, bool isDark) {
+    final bool isLimitReached = totalConnections >= 5;
+
+    Widget btnContent = SizedBox(
+      width: double.infinity,
+      height: 50,
+      child: ElevatedButton(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: isLimitReached ? const Color(0xFF9CA3AF) : const Color(0xFFEB444E),
+          disabledBackgroundColor: const Color(0xFF9CA3AF),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          elevation: 0,
+        ),
+        onPressed: isLimitReached
+            ? null
+            : () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const AddConnectionScreen()),
+                );
+              },
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(isLimitReached ? Icons.block_rounded : Icons.add, color: Colors.white, size: 20),
+            const SizedBox(width: 8),
+            Text(
+              isLimitReached ? "Connection limit reached" : "Add Connection",
+              style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (totalConnections == 0 && !isLimitReached) {
+      btnContent = btnContent
+          .animate(onPlay: (c) => c.repeat(reverse: false, period: 5.seconds))
+          .shimmer(duration: 1.seconds, delay: 4.seconds);
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.cardDark : Colors.white,
+        border: Border(top: BorderSide(color: isDark ? AppColors.dividerDark : const Color(0xFFE5E7EB))),
+      ),
+      child: btnContent,
+    );
   }
 }
 
@@ -725,7 +889,8 @@ class _NearbyAlertScreenState extends ConsumerState<NearbyAlertScreen> {
 
 class _PulsingIndicator extends StatefulWidget {
   final Color color;
-  const _PulsingIndicator({required this.color});
+  final double size;
+  const _PulsingIndicator({required this.color, this.size = 20});
 
   @override
   State<_PulsingIndicator> createState() => _PulsingIndicatorState();
@@ -755,7 +920,7 @@ class _PulsingIndicatorState extends State<_PulsingIndicator>
     return AnimatedBuilder(
       animation: _pulseController,
       builder: (context, child) {
-        final scale = 1.0 + (_pulseController.value * 0.8);
+        final scale = 1.0 + (_pulseController.value * 1.5);
         final opacity = 1.0 - _pulseController.value;
 
         return Stack(
@@ -766,8 +931,8 @@ class _PulsingIndicatorState extends State<_PulsingIndicator>
               child: Opacity(
                 opacity: opacity,
                 child: Container(
-                  width: 22,
-                  height: 22,
+                  width: widget.size,
+                  height: widget.size,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     border: Border.all(color: widget.color, width: 2),
@@ -776,14 +941,109 @@ class _PulsingIndicatorState extends State<_PulsingIndicator>
               ),
             ),
             Container(
-              width: 10,
-              height: 10,
+              width: widget.size * 0.5,
+              height: widget.size * 0.5,
               decoration: BoxDecoration(
                 color: widget.color,
                 shape: BoxShape.circle,
               ),
             ),
           ],
+        );
+      },
+    );
+  }
+}
+
+// ─── Shaking Icon Animation ──────────────────────────────────────────────────
+
+class _ShakingIcon extends StatefulWidget {
+  final Color color;
+  final double size;
+  const _ShakingIcon({required this.color, this.size = 14});
+
+  @override
+  State<_ShakingIcon> createState() => _ShakingIconState();
+}
+
+class _ShakingIconState extends State<_ShakingIcon>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _shakeController;
+
+  @override
+  void initState() {
+    super.initState();
+    _shakeController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 3),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _shakeController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _shakeController,
+      builder: (context, child) {
+        double angle = 0.0;
+        final val = _shakeController.value;
+        // Wiggle for 300ms (0 to 0.1 of 3s)
+        if (val < 0.1) {
+          final subVal = val / 0.1;
+          angle = (subVal < 0.5) ? (subVal * 0.175) : ((1.0 - subVal) * 0.175); // approx +-5 degrees
+        }
+        return Transform.rotate(
+          angle: angle,
+          child: Icon(Icons.warning_amber_rounded, size: widget.size, color: widget.color),
+        );
+      },
+    );
+  }
+}
+
+// ─── Rotating Hourglass Animation ──────────────────────────────────────────
+
+class _RotatingHourglass extends StatefulWidget {
+  final Color color;
+  final double size;
+  const _RotatingHourglass({required this.color, this.size = 14});
+
+  @override
+  State<_RotatingHourglass> createState() => _RotatingHourglassState();
+}
+
+class _RotatingHourglassState extends State<_RotatingHourglass>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _rotateController;
+
+  @override
+  void initState() {
+    super.initState();
+    _rotateController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _rotateController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _rotateController,
+      builder: (context, child) {
+        return Transform.rotate(
+          angle: _rotateController.value * 3.14159, // 180 degrees continuous
+          child: Icon(Icons.hourglass_empty_rounded, size: widget.size, color: widget.color),
         );
       },
     );
