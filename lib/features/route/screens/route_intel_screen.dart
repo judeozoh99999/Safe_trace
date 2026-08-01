@@ -180,7 +180,10 @@ class _RouteIntelScreenState extends ConsumerState<RouteIntelScreen>
         }
       });
 
-      if (widget.initialDestLatLng != null) {
+      final bool isDual = widget.isDualMarker || (widget.requesterLatLng != null && widget.recipientLatLng != null);
+      if (isDual) {
+        _calculateDualRoute();
+      } else if (widget.initialDestLatLng != null) {
         debugPrint("ROUTE SCREEN MOUNTED INCOMING DESTINATION LAT ${widget.initialDestLatLng!.latitude} INCOMING DESTINATION LNG ${widget.initialDestLatLng!.longitude}");
         setState(() {
           _selectedLatLng = widget.initialDestLatLng;
@@ -458,6 +461,67 @@ class _RouteIntelScreenState extends ConsumerState<RouteIntelScreen>
         );
       }
     }
+  }
+
+  Future<void> _calculateDualRoute() async {
+    final p1 = widget.requesterLatLng;
+    final p2 = widget.recipientLatLng;
+    if (p1 == null || p2 == null) return;
+
+    setState(() {
+      _isRouteLoading = true;
+    });
+
+    try {
+      final routeResult = await RouteService.fetchRoute(p1, p2);
+      if (routeResult != null && routeResult.polylinePoints.isNotEmpty) {
+        setState(() {
+          _routePoints = routeResult.polylinePoints;
+          _animatedRoutePoints = routeResult.polylinePoints;
+          _distanceKm = routeResult.distanceKm;
+          _durationMinutes = routeResult.durationMinutes.toDouble();
+          _isRouteLoading = false;
+        });
+      } else {
+        final meters = _calculateHaversineDistance(p1.latitude, p1.longitude, p2.latitude, p2.longitude);
+        final distKm = meters / 1000.0;
+        final estMins = (distKm / 0.5).round();
+        setState(() {
+          _routePoints = [p1, p2];
+          _animatedRoutePoints = [p1, p2];
+          _distanceKm = distKm;
+          _durationMinutes = estMins > 0 ? estMins.toDouble() : 1.0;
+          _isRouteLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint("Failed to fetch dual route: $e");
+      final meters = _calculateHaversineDistance(p1.latitude, p1.longitude, p2.latitude, p2.longitude);
+      final distKm = meters / 1000.0;
+      setState(() {
+        _routePoints = [p1, p2];
+        _animatedRoutePoints = [p1, p2];
+        _distanceKm = distKm;
+        _durationMinutes = 1.0;
+        _isRouteLoading = false;
+      });
+    }
+
+    _fitDualMarkerBounds(p1, p2);
+  }
+
+  void _fitDualMarkerBounds(LatLng p1, LatLng p2) {
+    if (_mapController == null) return;
+    final southWest = LatLng(
+      p1.latitude < p2.latitude ? p1.latitude : p2.latitude,
+      p1.longitude < p2.longitude ? p1.longitude : p2.longitude,
+    );
+    final northEast = LatLng(
+      p1.latitude > p2.latitude ? p1.latitude : p2.latitude,
+      p1.longitude > p2.longitude ? p1.longitude : p2.longitude,
+    );
+    final bounds = LatLngBounds(southwest: southWest, northeast: northEast);
+    _mapController!.animateCamera(CameraUpdate.newLatLngBounds(bounds, 80.0));
   }
 
   void _fitMapBounds(LatLng start, LatLng dest) {
@@ -1335,12 +1399,19 @@ class _RouteIntelScreenState extends ConsumerState<RouteIntelScreen>
             _isProgrammaticMoving = false;
           });
         } else if (isHistoricalMode && (widget.initialDestLatLng != null || widget.requesterLatLng != null)) {
-          final pos = widget.initialDestLatLng ?? widget.requesterLatLng!;
-          Future.delayed(const Duration(milliseconds: 200), () {
-            _mapController?.animateCamera(
-              CameraUpdate.newLatLngZoom(pos, 16.0),
-            );
-          });
+          final bool isDual = widget.isDualMarker || (widget.requesterLatLng != null && widget.recipientLatLng != null);
+          if (isDual && widget.requesterLatLng != null && widget.recipientLatLng != null) {
+            Future.delayed(const Duration(milliseconds: 200), () {
+              _fitDualMarkerBounds(widget.requesterLatLng!, widget.recipientLatLng!);
+            });
+          } else {
+            final pos = widget.initialDestLatLng ?? widget.requesterLatLng!;
+            Future.delayed(const Duration(milliseconds: 200), () {
+              _mapController?.animateCamera(
+                CameraUpdate.newLatLngZoom(pos, 16.0),
+              );
+            });
+          }
         }
       },
       initialCameraPosition: CameraPosition(target: target, zoom: isHistoricalMode ? 16.0 : 14.5),
@@ -1350,17 +1421,17 @@ class _RouteIntelScreenState extends ConsumerState<RouteIntelScreen>
       mapToolbarEnabled: false,
       markers: _buildMarkers(),
       polylines: {
-        if (_animatedRoutePoints.isNotEmpty) ...[
+        if (_animatedRoutePoints.isNotEmpty || _routePoints.isNotEmpty) ...[
           Polyline(
             polylineId: const PolylineId('route_glow'),
-            points: _animatedRoutePoints,
-            color: const Color(0xFF4F46E5).withOpacity(0.3),
+            points: _animatedRoutePoints.isNotEmpty ? _animatedRoutePoints : _routePoints,
+            color: (isHistoricalMode ? const Color(0xFF6C3FC4) : const Color(0xFF4F46E5)).withValues(alpha: 0.35),
             width: 10,
           ),
           Polyline(
             polylineId: const PolylineId('route'),
-            points: _animatedRoutePoints,
-            color: const Color(0xFF4F46E5),
+            points: _animatedRoutePoints.isNotEmpty ? _animatedRoutePoints : _routePoints,
+            color: isHistoricalMode ? const Color(0xFF6C3FC4) : const Color(0xFF4F46E5),
             width: 5,
           ),
         ],
@@ -1934,6 +2005,54 @@ class _RouteIntelScreenState extends ConsumerState<RouteIntelScreen>
                                     const Divider(color: Color(0xFFC7D2FE), height: 1),
                                     const SizedBox(height: 12),
                                     if (widget.isDualMarker || (widget.requesterLatLng != null && widget.recipientLatLng != null)) ...[
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFF6C3FC4).withValues(alpha: 0.12),
+                                          borderRadius: BorderRadius.circular(12),
+                                          border: Border.all(color: const Color(0xFF6C3FC4).withValues(alpha: 0.3)),
+                                        ),
+                                        child: Row(
+                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            Row(
+                                              children: [
+                                                const Icon(Icons.straighten_rounded, color: Color(0xFF6C3FC4), size: 20),
+                                                const SizedBox(width: 8),
+                                                Text(
+                                                  _distanceKm != null
+                                                      ? (_distanceKm! < 1.0
+                                                          ? "Distance: ${(_distanceKm! * 1000).round()} m"
+                                                          : "Distance: ${_distanceKm!.toStringAsFixed(2)} km")
+                                                      : (_isRouteLoading ? "Calculating distance..." : "Distance calculated"),
+                                                  style: const TextStyle(
+                                                    fontSize: 14,
+                                                    fontWeight: FontWeight.w900,
+                                                    color: Color(0xFF6C3FC4),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            if (_durationMinutes != null && _durationMinutes! > 0)
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                decoration: BoxDecoration(
+                                                  color: const Color(0xFF6C3FC4),
+                                                  borderRadius: BorderRadius.circular(8),
+                                                ),
+                                                child: Text(
+                                                  "~${_durationMinutes} mins drive",
+                                                  style: const TextStyle(
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: Colors.white,
+                                                  ),
+                                                ),
+                                              ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(height: 12),
                                       Row(
                                         crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
