@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import '../../location/services/location_service.dart';
+import '../providers/community_summary_provider.dart';
 
 class SelectCommunityLocationScreen extends StatefulWidget {
   final LatLng currentGpsLocation;
@@ -325,6 +327,8 @@ class _SelectCommunityLocationScreenState extends State<SelectCommunityLocationS
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
+                      const SizedBox(width: 8),
+                      _SafetyLevelPreviewPill(location: _selectedLatLng),
                     ],
                   ),
                   const SizedBox(height: 14),
@@ -350,6 +354,101 @@ class _SelectCommunityLocationScreenState extends State<SelectCommunityLocationS
                   ),
                 ],
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SafetyLevelPreviewPill extends ConsumerWidget {
+  final LatLng location;
+
+  const _SafetyLevelPreviewPill({required this.location});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final param = SummaryLocationParam(location: location, isPreview: true);
+    final summaryAsync = ref.watch(communitySafetySummaryProvider(param));
+
+    return summaryAsync.when(
+      data: (summary) {
+        if (summary == null || summary.safetyLevel == 'Unknown') {
+          return const SizedBox.shrink();
+        }
+        return _buildPill(summary.safetyLevel);
+      },
+      loading: () => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.grey.withOpacity(0.2),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 10,
+              height: 10,
+              child: CircularProgressIndicator(strokeWidth: 1.5, color: Color(0xFFEF4444)),
+            ),
+            SizedBox(width: 6),
+            Text(
+              "Safety...",
+              style: TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+      ),
+      error: (_, __) => const SizedBox.shrink(),
+    );
+  }
+
+  Widget _buildPill(String level) {
+    Color bg;
+    IconData icon;
+    switch (level.toLowerCase()) {
+      case 'safe':
+        bg = const Color(0xFF2D9B5A);
+        icon = Icons.check_circle_rounded;
+        break;
+      case 'moderate':
+        bg = const Color(0xFFF59E0B);
+        icon = Icons.info_rounded;
+        break;
+      case 'caution':
+        bg = const Color(0xFFEA580C);
+        icon = Icons.warning_amber_rounded;
+        break;
+      case 'danger':
+        bg = const Color(0xFFE63946);
+        icon = Icons.error_rounded;
+        break;
+      default:
+        bg = const Color(0xFF6B7280);
+        icon = Icons.info_rounded;
+        break;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: Colors.white, size: 12),
+          const SizedBox(width: 4),
+          Text(
+            level.toUpperCase(),
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w900,
+              fontSize: 11,
+              letterSpacing: 0.5,
             ),
           ),
         ],

@@ -790,4 +790,298 @@ exports.onTrustedCircleRequestWrite = functions.firestore
     return null;
   });
 
+// ─── AI Community Safety Summary Function ──────────────────────────────────
+
+function calculateHaversineDistanceKm(lat1, lon1, lat2, lon2) {
+  const p = 0.017453292519943295; // Math.PI / 180
+  const a = 0.5 - Math.cos((lat2 - lat1) * p) / 2 +
+      Math.cos(lat1 * p) * Math.cos(lat2 * p) * (1 - Math.cos((lon2 - lon1) * p)) / 2;
+  return 12742 * Math.asin(Math.sqrt(a)); // 2 * R; R = 6371 km
+}
+
+exports.getCommunitySafetySummary = functions.https.onCall(async (data, context) => {
+  // Step 1 — Authentication Check
+  if (!context.auth) {
+    throw new functions.https.HttpsError(
+      'unauthenticated',
+      'User must be authenticated to request safety summaries.'
+    );
+  }
+
+  const lat = parseFloat(data.lat);
+  const lng = parseFloat(data.lng);
+  const radiusKm = parseFloat(data.radius_km || 12.0);
+  const bypassCache = Boolean(data.bypass_cache || false);
+  const isPreview = Boolean(data.is_preview || false);
+
+  if (isNaN(lat) || isNaN(lng)) {
+    throw new functions.https.HttpsError('invalid-argument', 'Valid latitude and longitude are required.');
+  }
+
+  try {
+    // Step 2 — Fetch notes from Firestore (visible & last 48 hours)
+    const fortyEightHoursAgo = new Date(Date.now() - 48 * 60 * 60 * 1000);
+    const notesSnap = await db.collection('community_notes')
+      .where('is_visible', '==', true)
+      .where('created_at', '>=', admin.firestore.Timestamp.fromDate(fortyEightHoursAgo))
+      .orderBy('created_at', 'desc')
+      .limit(100)
+      .get();
+
+    const matchingNotes = [];
+    notesSnap.docs.forEach((doc) => {
+      const nData = doc.data();
+      const nLat = parseFloat(nData.lat || 0.0);
+      const nLng = parseFloat(nData.lng || 0.0);
+      if (nLat === 0.0 && nLng === 0.0) return;
+
+      const dist = calculateHaversineDistanceKm(lat, lng, nLat, nLng);
+      if (dist <= radiusKm) {
+        matchingNotes.push({
+          id: doc.id,
+          address: nData.address || 'Unknown area',
+          note: nData.note || '',
+          created_at: nData.created_at ? nData.created_at.toDate() : new Date(),
+        });
+      }
+    });
+
+    // If zero notes found within radius
+    if (matchingNotes.length === 0) {
+      return {
+        safety_level: null,
+        summary: null,
+        key_concerns: [],
+        note_count: 0,
+        generated_at: new Date().toISOString(),
+        message: 'No community notes found in this area.',
+      };
+    }
+
+    const docId = `${lat.toFixed(3)}_${lng.toFixed(3)}_${Math.round(radiusKm)}`;
+    const cacheRef = db.collection('ai_summaries').doc(docId);
+
+    // Step 3 — Check Cache (30 min cache)
+    if (!bypassCache) {
+      const cacheDoc = await cacheRef.get();
+      if (cacheDoc.exists) {
+        const cached = cacheDoc.data();
+        const genTime = cached.generated_at ? cached.generated_at.toDate().getTime() : 0;
+        const ageMinutes = (Date.now() - genTime) / (1000 * 60);
+
+        if (ageMinutes < 30) {
+          // Log cache hit usage
+          await db.collection('gemini_usage').add({
+            called_at: admin.firestore.FieldValue.serverTimestamp(),
+            note_count: cached.note_count || matchingNotes.length,
+            estimated_tokens: 0,
+            cache_hit: true,
+            location: new admin.firestore.GeoPoint(lat, lng),
+          });
+
+          return {
+            safety_level: cached.safety_level || 'Unknown',
+            summary: cached.summary || '',
+            key_concerns: cached.key_concerns || [],
+            note_count: cached.note_count || matchingNotes.length,
+            generated_at: cached.generated_at ? cached.generated_at.toDate().toISOString() : new Date().toISOString(),
+          };
+        }
+      }
+    }
+
+    // Max limit: 20 notes for preview, 50 notes for full summary
+    const maxNotesLimit = isPreview ? 20 : 50;
+    const notesToSummarize = matchingNotes.slice(0, maxNotesLimit);
+
+    // Step 4 — Build Prompt for Gemini
+    const now = new Date();
+    let promptNotesText = notesToSummarize.map((n, idx) => {
+      const diffMs = now.getTime() - n.created_at.getTime();
+      const diffMins = Math.floor(diffMs / (1000 * 60));
+      const diffHours = Math.floor(diffMins / 60);
+      let timeAgo = `${diffMins} minutes ago`;
+      if (diffHours >= 1) {
+        timeAgo = `${diffHours} hours ago`;
+      }
+      return `${idx + 1}. Address: ${n.address} | Note: "${n.note}" | Posted: ${timeAgo}`;
+    }).join('\n');
+
+    if (matchingNotes.length > maxNotesLimit) {
+      promptNotesText += `\nNote: There are additional notes not shown here, indicating this is a busy area.`;
+    }
+
+    const systemContext = `You are a community safety analyst for SafeTrace, a personal safety app used in Nigeria. You have been given a list of community safety notes submitted by users within a 12 kilometre radius of a specific location. Your job is to analyse these notes and produce a brief, honest safety summary for this area. Be direct and accurate. Do not be unnecessarily alarming but do not minimise real dangers. Use plain language that a regular person can understand.`;
+
+    const instructions = `Based on these notes give me a safety summary in exactly 3 parts. Part 1 is the Overall Safety Level which must be exactly one of these words: Safe, Moderate, Caution, or Danger. Part 2 is the Summary which is 2 to 3 sentences describing the current situation in this area based on the notes. Part 3 is the Key Concerns which is a bullet list of up to 3 specific issues mentioned in the notes. If there are no concerning notes in Part 3 write None reported. Format your response as JSON with keys safety_level, summary, and key_concerns where key_concerns is an array of strings.`;
+
+    const fullPrompt = `${systemContext}\n\nCOMMUNITY NOTES:\n${promptNotesText}\n\n${instructions}`;
+
+    // Step 5 — Call Gemini API
+    const apiKey = functions.config().gemini?.api_key || process.env.GEMINI_API_KEY || "AIzaSyD4oAVDWNfX2bYRjBaMQW9ymKuOIHve6pU";
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+
+    const requestBody = JSON.stringify({
+      contents: [
+        {
+          role: 'user',
+          parts: [{ text: fullPrompt }]
+        }
+      ],
+      generationConfig: {
+        temperature: 0.3,
+        maxOutputTokens: 500,
+        responseMimeType: 'application/json'
+      }
+    });
+
+    const https = require('https');
+    const url = require('url');
+
+    const callGeminiHttp = (targetUrl, bodyStr) => {
+      return new Promise((resolve, reject) => {
+        const parsedUrl = url.parse(targetUrl);
+        const req = https.request({
+          hostname: parsedUrl.hostname,
+          path: parsedUrl.path,
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(bodyStr)
+          }
+        }, (res) => {
+          let responseData = '';
+          res.on('data', (chunk) => { responseData += chunk; });
+          res.on('end', () => {
+            if (res.statusCode >= 200 && res.statusCode < 300) {
+              resolve(responseData);
+            } else {
+              reject(new Error(`Gemini API HTTP Error ${res.statusCode}: ${responseData}`));
+            }
+          });
+        });
+        req.on('error', (err) => reject(err));
+        req.write(bodyStr);
+        req.end();
+      });
+    };
+
+    let geminiResponseJsonText = null;
+    try {
+      const rawRes = await callGeminiHttp(geminiUrl, requestBody);
+      const parsedRes = JSON.parse(rawRes);
+      if (parsedRes.candidates && parsedRes.candidates.length > 0 && parsedRes.candidates[0].content) {
+        geminiResponseJsonText = parsedRes.candidates[0].content.parts[0].text;
+      }
+    } catch (apiErr) {
+      console.error('Gemini API call failed:', apiErr);
+    }
+
+    // Step 6 — Parse Gemini response
+    let safetyLevel = 'Unknown';
+    let summaryText = 'Unable to generate summary at this time';
+    let keyConcerns = [];
+
+    if (geminiResponseJsonText) {
+      try {
+        let cleanText = geminiResponseJsonText.trim();
+        if (cleanText.startsWith('```json')) {
+          cleanText = cleanText.replace(/^```json/, '').replace(/```$/, '').trim();
+        } else if (cleanText.startsWith('```')) {
+          cleanText = cleanText.replace(/^```/, '').replace(/```$/, '').trim();
+        }
+
+        const summaryObj = JSON.parse(cleanText);
+        const validLevels = ['Safe', 'Moderate', 'Caution', 'Danger'];
+
+        if (summaryObj.safety_level && validLevels.includes(summaryObj.safety_level)) {
+          safetyLevel = summaryObj.safety_level;
+        }
+
+        if (summaryObj.summary && typeof summaryObj.summary === 'string') {
+          summaryText = summaryObj.summary;
+        }
+
+        if (Array.isArray(summaryObj.key_concerns)) {
+          keyConcerns = summaryObj.key_concerns.map(c => String(c)).slice(0, 3);
+        }
+      } catch (parseErr) {
+        console.error('Failed to parse Gemini JSON output:', parseErr, geminiResponseJsonText);
+      }
+    }
+
+    // Step 7 — Cache the result in ai_summaries
+    const resultToStore = {
+      safety_level: safetyLevel,
+      summary: summaryText,
+      key_concerns: keyConcerns,
+      generated_at: admin.firestore.FieldValue.serverTimestamp(),
+      note_count: matchingNotes.length,
+      lat: lat,
+      lng: lng,
+      radius_km: radiusKm,
+    };
+
+    await cacheRef.set(resultToStore);
+
+    // Step 8 — Log Usage to gemini_usage
+    const estimatedTokens = Math.round(fullPrompt.length / 4);
+    await db.collection('gemini_usage').add({
+      called_at: admin.firestore.FieldValue.serverTimestamp(),
+      note_count: matchingNotes.length,
+      estimated_tokens: estimatedTokens,
+      cache_hit: false,
+      location: new admin.firestore.GeoPoint(lat, lng),
+    });
+
+    return {
+      safety_level: safetyLevel,
+      summary: summaryText,
+      key_concerns: keyConcerns,
+      note_count: matchingNotes.length,
+      generated_at: new Date().toISOString(),
+    };
+
+  } catch (error) {
+    console.error('Error executing getCommunitySafetySummary function:', error);
+    return {
+      safety_level: 'Unknown',
+      summary: 'Unable to generate summary at this time',
+      key_concerns: [],
+      note_count: 0,
+      generated_at: new Date().toISOString(),
+      error: error.message,
+    };
+  }
+});
+
+// Scheduled function running every 6 hours to clean up ai_summaries older than 24 hours
+exports.cleanupAiSummaries = functions.pubsub.schedule('0 */6 * * *')
+  .onRun(async (context) => {
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    console.log(`Starting cleanup of ai_summaries older than ${twentyFourHoursAgo.toISOString()}`);
+    try {
+      const oldSnap = await db.collection('ai_summaries')
+        .where('generated_at', '<', admin.firestore.Timestamp.fromDate(twentyFourHoursAgo))
+        .get();
+
+      if (oldSnap.empty) {
+        console.log('No stale ai_summaries found.');
+        return null;
+      }
+
+      const batch = db.batch();
+      oldSnap.docs.forEach((doc) => {
+        batch.delete(doc.ref);
+      });
+      await batch.commit();
+      console.log(`Successfully deleted ${oldSnap.size} stale ai_summaries documents.`);
+      return null;
+    } catch (err) {
+      console.error('Error cleaning up ai_summaries:', err);
+      throw err;
+    }
+  });
+
+
 

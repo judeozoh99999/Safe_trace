@@ -14,6 +14,7 @@ import '../../../shared/widgets/custom_text_field.dart';
 import '../../location/services/location_service.dart';
 import '../../location/providers/home_provider.dart';
 import '../providers/community_provider.dart';
+import '../widgets/ai_safety_summary_card.dart';
 import 'select_community_location_screen.dart';
 import '../../home_shell.dart';
 
@@ -159,8 +160,13 @@ class _CommunityFeedScreenState extends ConsumerState<CommunityFeedScreen> {
 
               // Feed List
               Expanded(
-                child: filteredNotes.isEmpty
-                    ? Center(
+                child: ListView(
+                  physics: const BouncingScrollPhysics(),
+                  children: [
+                    if (_selectedCenterLatLng != null)
+                      AiSafetySummaryCard(location: _selectedCenterLatLng!),
+                    if (filteredNotes.isEmpty)
+                      Center(
                         child: Padding(
                           padding: const EdgeInsets.all(24.0),
                           child: Column(
@@ -177,15 +183,13 @@ class _CommunityFeedScreenState extends ConsumerState<CommunityFeedScreen> {
                           ),
                         ),
                       )
-                    : ListView.builder(
-                        physics: const BouncingScrollPhysics(),
-                        itemCount: filteredNotes.length,
-                        itemBuilder: (context, index) {
-                          final note = filteredNotes[index];
-                          final isOwnNote = note.uid == currentUserId;
-                          return _buildNoteCard(context, ref, note, isOwnNote, isDark);
-                        },
-                      ),
+                    else
+                      ...filteredNotes.map((note) {
+                        final isOwnNote = note.uid == currentUserId;
+                        return _buildNoteCard(context, ref, note, isOwnNote, isDark);
+                      }),
+                  ],
+                ),
               ),
             ],
           ),
