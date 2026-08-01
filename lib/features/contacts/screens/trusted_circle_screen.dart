@@ -537,12 +537,13 @@ class _TrustedCircleScreenState extends ConsumerState<TrustedCircleScreen> {
                     // Normal Active Contact Card
                     return Container(
                       margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                       decoration: BoxDecoration(
                         color: isDark ? const Color(0xFF1A1D27) : Colors.white,
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(color: isDark ? const Color(0xFF2E3347) : const Color(0xFFE5E7EB)),
                       ),
-                      child: ListTile(
+                      child: InkWell(
                         onTap: () {
                           Navigator.of(context).push(
                             MaterialPageRoute(
@@ -557,55 +558,75 @@ class _TrustedCircleScreenState extends ConsumerState<TrustedCircleScreen> {
                             ),
                           );
                         },
-                        leading: CircleAvatar(
-                          backgroundColor: AppColors.primary.withOpacity(0.15),
-                          child: Text(
-                            initials,
-                            style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold, fontSize: 13),
-                          ),
-                        ),
-                        title: Text(
-                          fullName,
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
-                            color: isDark ? Colors.white : const Color(0xFF111827),
-                          ),
-                        ),
-                        subtitle: Row(
+                        child: Row(
                           children: [
-                            Text(
-                              phone,
-                              style: TextStyle(
-                                color: isDark ? AppColors.textDarkSecondary : const Color(0xFF6B7280),
-                                fontSize: 12,
+                            CircleAvatar(
+                              radius: 20,
+                              backgroundColor: AppColors.primary.withOpacity(0.15),
+                              child: Text(
+                                initials,
+                                style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold, fontSize: 13),
                               ),
                             ),
-                            if (welfare) ...[
-                              const SizedBox(width: 8),
-                              const Icon(Icons.health_and_safety, size: 14, color: Color(0xFF16A34A)),
-                            ],
-                          ],
-                        ),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    fullName,
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 14,
+                                      color: isDark ? Colors.white : const Color(0xFF111827),
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Flexible(
+                                        child: Text(
+                                          phone,
+                                          style: TextStyle(
+                                            color: isDark ? AppColors.textDarkSecondary : const Color(0xFF6B7280),
+                                            fontSize: 12,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      if (welfare) ...[
+                                        const SizedBox(width: 6),
+                                        const Icon(Icons.health_and_safety, size: 14, color: Color(0xFF16A34A)),
+                                      ],
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 6),
                             OutlinedButton(
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: const Color(0xFFEF4444),
                                 side: const BorderSide(color: Color(0xFFEF4444)),
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                               ),
                               onPressed: () => _showRemoveConfirmationSheet(doc.id, fullName),
                               child: const Text(
                                 "Remove from Circle",
-                                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                                style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold),
                               ),
                             ),
-                            const SizedBox(width: 4),
+                            const SizedBox(width: 2),
                             Icon(
                               Icons.chevron_right_rounded,
+                              size: 18,
                               color: isDark ? AppColors.textDarkSecondary : const Color(0xFF9CA3AF),
                             ),
                           ],

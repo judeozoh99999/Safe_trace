@@ -393,7 +393,7 @@ class _NearbyAlertScreenState extends ConsumerState<NearbyAlertScreen> {
           textCol: const Color(0xFF2D9B5A),
           topRightWidget: const _PulsingIndicator(color: Color(0xFF2D9B5A), size: 12),
         ),
-        const SizedBox(width: 8),
+        const SizedBox(width: 4),
 
         // Expiring Box
         _buildStatCard(
@@ -404,7 +404,7 @@ class _NearbyAlertScreenState extends ConsumerState<NearbyAlertScreen> {
           topRightWidget: const Icon(Icons.timer_outlined, size: 14, color: Color(0xFFF59E0B)),
           hasGlowBorder: expiring > 0,
         ),
-        const SizedBox(width: 8),
+        const SizedBox(width: 4),
 
         // Pending Box
         _buildStatCard(
@@ -414,7 +414,7 @@ class _NearbyAlertScreenState extends ConsumerState<NearbyAlertScreen> {
           textCol: const Color(0xFF2C3E6B),
           topRightWidget: const _RotatingHourglass(color: Color(0xFF2C3E6B), size: 14),
         ),
-        const SizedBox(width: 8),
+        const SizedBox(width: 4),
 
         // Radius Box
         _buildStatCard(
@@ -438,10 +438,10 @@ class _NearbyAlertScreenState extends ConsumerState<NearbyAlertScreen> {
   }) {
     return Expanded(
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
         decoration: BoxDecoration(
           color: bg,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(14),
           border: hasGlowBorder
               ? Border.all(color: const Color(0xFFF59E0B), width: 1.5)
               : Border.all(color: textCol.withValues(alpha: 0.12)),
@@ -456,20 +456,28 @@ class _NearbyAlertScreenState extends ConsumerState<NearbyAlertScreen> {
         child: Column(
           children: [
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const SizedBox(width: 14),
-                Text(
-                  val,
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: textCol),
+                Flexible(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      val,
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: textCol),
+                    ),
+                  ),
                 ),
+                const SizedBox(width: 3),
                 topRightWidget,
               ],
             ),
             const SizedBox(height: 2),
-            Text(
-              label,
-              style: TextStyle(fontSize: 11, color: textCol.withValues(alpha: 0.85), fontWeight: FontWeight.bold),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                label,
+                style: TextStyle(fontSize: 11, color: textCol.withValues(alpha: 0.85), fontWeight: FontWeight.bold),
+              ),
             ),
           ],
         ),
