@@ -36,6 +36,9 @@ class RouteIntelScreen extends ConsumerStatefulWidget {
   final String? victimName;
 
   final bool nearbyAlertEvent;
+  final bool isNearbyAlertHistoricalView;
+  final String? historicalCardTitle;
+  final bool isDualMarker;
   final String? requesterName;
   final String? recipientName;
   final LatLng? requesterLatLng;
@@ -51,6 +54,9 @@ class RouteIntelScreen extends ConsumerStatefulWidget {
     this.isPanicAlert = false,
     this.victimName,
     this.nearbyAlertEvent = false,
+    this.isNearbyAlertHistoricalView = false,
+    this.historicalCardTitle,
+    this.isDualMarker = false,
     this.requesterName,
     this.recipientName,
     this.requesterLatLng,
@@ -66,6 +72,8 @@ class RouteIntelScreen extends ConsumerStatefulWidget {
 
 class _RouteIntelScreenState extends ConsumerState<RouteIntelScreen>
     with TickerProviderStateMixin {
+  bool get isHistoricalMode => widget.isNearbyAlertHistoricalView || widget.nearbyAlertEvent;
+
   // Map
   GoogleMapController? _mapController;
 
@@ -1040,29 +1048,49 @@ class _RouteIntelScreenState extends ConsumerState<RouteIntelScreen>
   // ─── Markers ──────────────────────────────────────────────────────────────
 
   Set<Marker> _buildMarkers() {
-    if (widget.nearbyAlertEvent) {
+    if (isHistoricalMode) {
       final Set<Marker> nearbyMarkers = {};
-      if (widget.requesterLatLng != null) {
-        nearbyMarkers.add(Marker(
-          markerId: const MarkerId('requester_loc'),
-          position: widget.requesterLatLng!,
-          infoWindow: InfoWindow(
-            title: widget.requesterName ?? "User A",
-            snippet: widget.requesterAddress ?? "Location A",
-          ),
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueViolet),
-        ));
-      }
-      if (widget.recipientLatLng != null) {
-        nearbyMarkers.add(Marker(
-          markerId: const MarkerId('recipient_loc'),
-          position: widget.recipientLatLng!,
-          infoWindow: InfoWindow(
-            title: widget.recipientName ?? "User B",
-            snippet: widget.recipientAddress ?? "Location B",
-          ),
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
-        ));
+      final bool isDual = widget.isDualMarker || (widget.requesterLatLng != null && widget.recipientLatLng != null);
+
+      if (isDual) {
+        if (widget.requesterLatLng != null) {
+          nearbyMarkers.add(Marker(
+            markerId: const MarkerId('requester_loc'),
+            position: widget.requesterLatLng!,
+            infoWindow: InfoWindow(
+              title: widget.requesterName ?? "You",
+              snippet: widget.requesterAddress ?? "Location A",
+            ),
+            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueViolet),
+          ));
+        }
+        if (widget.recipientLatLng != null) {
+          nearbyMarkers.add(Marker(
+            markerId: const MarkerId('recipient_loc'),
+            position: widget.recipientLatLng!,
+            infoWindow: InfoWindow(
+              title: widget.recipientName ?? "Contact",
+              snippet: widget.recipientAddress ?? "Location B",
+            ),
+            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+          ));
+        }
+      } else {
+        final pos = widget.initialDestLatLng ?? widget.requesterLatLng;
+        final addr = widget.initialDestAddress ?? widget.requesterAddress ?? "Location";
+        final title = widget.historicalCardTitle ?? "Nearby Alert Connection Location";
+
+        if (pos != null) {
+          nearbyMarkers.add(Marker(
+            markerId: const MarkerId('historical_loc'),
+            position: pos,
+            infoWindow: InfoWindow(
+              title: title,
+              snippet: addr,
+            ),
+            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueViolet),
+          ));
+        }
       }
       return nearbyMarkers;
     }
@@ -1275,8 +1303,8 @@ class _RouteIntelScreenState extends ConsumerState<RouteIntelScreen>
 
     final homeState = ref.watch(homeProvider);
     final userLatLng = LatLng(homeState.currentLatitude, homeState.currentLongitude);
-    final target = widget.nearbyAlertEvent
-        ? (widget.requesterLatLng ?? const LatLng(6.5244, 3.3792))
+    final target = isHistoricalMode
+        ? (widget.initialDestLatLng ?? widget.requesterLatLng ?? const LatLng(6.5244, 3.3792))
         : ((_currentPosition != null)
             ? LatLng(_currentPosition!.latitude, _currentPosition!.longitude)
             : ((userLatLng.latitude != 0.0 && userLatLng.longitude != 0.0)
@@ -1286,7 +1314,8 @@ class _RouteIntelScreenState extends ConsumerState<RouteIntelScreen>
     return GoogleMap(
       onMapCreated: (controller) {
         _mapController = controller;
-        if (widget.nearbyAlertEvent && widget.requesterLatLng != null && widget.recipientLatLng != null) {
+        final bool isDual = widget.isDualMarker || (widget.requesterLatLng != null && widget.recipientLatLng != null);
+        if (isHistoricalMode && isDual && widget.requesterLatLng != null && widget.recipientLatLng != null) {
           final req = widget.requesterLatLng!;
           final rec = widget.recipientLatLng!;
           final southWest = LatLng(
@@ -1305,9 +1334,16 @@ class _RouteIntelScreenState extends ConsumerState<RouteIntelScreen>
             );
             _isProgrammaticMoving = false;
           });
+        } else if (isHistoricalMode && (widget.initialDestLatLng != null || widget.requesterLatLng != null)) {
+          final pos = widget.initialDestLatLng ?? widget.requesterLatLng!;
+          Future.delayed(const Duration(milliseconds: 200), () {
+            _mapController?.animateCamera(
+              CameraUpdate.newLatLngZoom(pos, 16.0),
+            );
+          });
         }
       },
-      initialCameraPosition: CameraPosition(target: target, zoom: 14.5),
+      initialCameraPosition: CameraPosition(target: target, zoom: isHistoricalMode ? 16.0 : 14.5),
       myLocationEnabled: false,
       myLocationButtonEnabled: false,
       zoomControlsEnabled: false,
@@ -1859,7 +1895,7 @@ class _RouteIntelScreenState extends ConsumerState<RouteIntelScreen>
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            if (widget.nearbyAlertEvent) ...[
+                            if (isHistoricalMode) ...[
                               Container(
                                 width: double.infinity,
                                 padding: const EdgeInsets.all(16),
@@ -1872,15 +1908,17 @@ class _RouteIntelScreenState extends ConsumerState<RouteIntelScreen>
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Row(
-                                      children: const [
-                                        Icon(Icons.wifi_tethering_rounded, color: Color(0xFF4F46E5), size: 22),
-                                        SizedBox(width: 8),
-                                        Text(
-                                          "Nearby Alert Connection",
-                                          style: TextStyle(
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.w900,
-                                            color: Color(0xFF1E1B4B),
+                                      children: [
+                                        const Icon(Icons.wifi_tethering_rounded, color: Color(0xFF4F46E5), size: 22),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            widget.historicalCardTitle ?? "Nearby Alert Connection Location",
+                                            style: const TextStyle(
+                                              fontSize: 15,
+                                              fontWeight: FontWeight.w900,
+                                              color: Color(0xFF1E1B4B),
+                                            ),
                                           ),
                                         ),
                                       ],
@@ -1895,33 +1933,49 @@ class _RouteIntelScreenState extends ConsumerState<RouteIntelScreen>
                                     const SizedBox(height: 12),
                                     const Divider(color: Color(0xFFC7D2FE), height: 1),
                                     const SizedBox(height: 12),
-                                    Row(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        const Icon(Icons.location_on_rounded, color: Color(0xFF7C3AED), size: 18),
-                                        const SizedBox(width: 6),
-                                        Expanded(
-                                          child: Text(
-                                            "${widget.requesterName ?? 'User A'} was at ${widget.requesterAddress ?? 'Location A'}",
-                                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF312E81)),
+                                    if (widget.isDualMarker || (widget.requesterLatLng != null && widget.recipientLatLng != null)) ...[
+                                      Row(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          const Icon(Icons.location_on_rounded, color: Color(0xFF7C3AED), size: 18),
+                                          const SizedBox(width: 6),
+                                          Expanded(
+                                            child: Text(
+                                              "${widget.requesterName ?? 'You'} was at ${widget.requesterAddress ?? 'Location A'}",
+                                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF312E81)),
+                                            ),
                                           ),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Row(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        const Icon(Icons.location_on_rounded, color: Color(0xFF0284C7), size: 18),
-                                        const SizedBox(width: 6),
-                                        Expanded(
-                                          child: Text(
-                                            "${widget.recipientName ?? 'User B'} was at ${widget.recipientAddress ?? 'Location B'}",
-                                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF312E81)),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Row(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          const Icon(Icons.location_on_rounded, color: Color(0xFF0284C7), size: 18),
+                                          const SizedBox(width: 6),
+                                          Expanded(
+                                            child: Text(
+                                              "${widget.recipientName ?? 'Contact'} was at ${widget.recipientAddress ?? 'Location B'}",
+                                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF312E81)),
+                                            ),
                                           ),
-                                        ),
-                                      ],
-                                    ),
+                                        ],
+                                      ),
+                                    ] else ...[
+                                      Row(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          const Icon(Icons.location_on_rounded, color: Color(0xFF7C3AED), size: 18),
+                                          const SizedBox(width: 6),
+                                          Expanded(
+                                            child: Text(
+                                              widget.initialDestAddress ?? widget.requesterAddress ?? "Location",
+                                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF312E81)),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
                                   ],
                                 ),
                               ),

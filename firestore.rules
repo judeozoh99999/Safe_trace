@@ -25,6 +25,12 @@ service cloud.firestore {
       match /location_logs/{logId} {
         allow read, write: if request.auth != null && request.auth.uid == userId;
       }
+
+      // Location history subcollection
+      match /location_history/{histId} {
+        allow read: if request.auth != null;
+        allow write: if request.auth != null && request.auth.uid == userId;
+      }
     }
 
     // Nearby connections collection rules
@@ -74,8 +80,11 @@ service cloud.firestore {
 
     // nearby_alert_events collection rules
     match /nearby_alert_events/{eventId} {
-      // User can read only if their UID appears in the visible_to array
-      allow read: if request.auth != null && request.auth.uid in resource.data.visible_to;
+      // User can read if their UID is requester, recipient, or in visible_to
+      allow read: if request.auth != null && 
+        (request.auth.uid == resource.data.requester_uid || 
+         request.auth.uid == resource.data.recipient_uid || 
+         request.auth.uid in resource.data.visible_to);
       // No user can create/update/delete directly - managed by Cloud Functions / backend
       allow create, update, delete: if false;
     }

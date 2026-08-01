@@ -45,6 +45,7 @@ class HomeNotifier extends StateNotifier<HomeState> {
   final Ref _ref;
   ProviderSubscription<User?>? _authSubscription;
   StreamSubscription<QuerySnapshot>? _locationsSubscription;
+  StreamSubscription<QuerySnapshot>? _historySubscription;
   StreamSubscription<Position>? _positionSubscription;
 
   HomeNotifier(this._ref) : super(HomeState()) {
@@ -60,42 +61,94 @@ class HomeNotifier extends StateNotifier<HomeState> {
 
   void _subscribeToLocations(String uid) {
     _locationsSubscription?.cancel();
+    _historySubscription?.cancel();
+
+    QuerySnapshot? locSnap;
+    QuerySnapshot? histSnap;
+
+    void updateLogs() {
+      final locDocs = locSnap?.docs ?? [];
+      final histDocs = histSnap?.docs ?? [];
+
+      // Combine and deduplicate by doc ID
+      final Map<String, QueryDocumentSnapshot> docMap = {};
+      for (final doc in [...locDocs, ...histDocs]) {
+        docMap[doc.id] = doc;
+      }
+      final allDocs = docMap.values.toList();
+
+      // Sort combined docs by timestamp descending
+      allDocs.sort((a, b) {
+        final dataA = a.data() as Map<String, dynamic>;
+        final dataB = b.data() as Map<String, dynamic>;
+        final tsA = (dataA['created_at'] ?? dataA['timestamp'] ?? dataA['added_at']) as Timestamp?;
+        final tsB = (dataB['created_at'] ?? dataB['timestamp'] ?? dataB['added_at']) as Timestamp?;
+        if (tsA == null && tsB == null) return 0;
+        if (tsA == null) return 1;
+        if (tsB == null) return -1;
+        return tsB.compareTo(tsA);
+      });
+
+      final logsList = allDocs.map((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        final ts = (data['created_at'] ?? data['timestamp'] ?? data['added_at']) as Timestamp?;
+        final timestampStr = ts != null ? ts.toDate().toLocal().toString() : 'Just now';
+        final rawLat = (data['lat'] ?? data['latitude'] ?? '').toString();
+        final rawLng = (data['lng'] ?? data['longitude'] ?? '').toString();
+        final address = (data['address'] ?? data['locationName'] ?? 'Logged Location').toString();
+        final note = (data['note'] ?? '').toString();
+        final source = (data['source'] ?? '').toString();
+        final tagLabel = (data['tag_label'] ?? '').toString();
+        final tagColor = (data['tag_color'] ?? '').toString();
+
+        return <String, String>{
+          'id': doc.id,
+          'location': address,
+          'timestamp': timestampStr,
+          'note': note,
+          'aiAdvice': (data['aiAdvice'] ?? '').toString(),
+          'latitude': rawLat,
+          'longitude': rawLng,
+          'lat': rawLat,
+          'lng': rawLng,
+          'source': source,
+          'tag_label': tagLabel,
+          'tag_color': tagColor,
+          'raw_timestamp': ts != null ? ts.millisecondsSinceEpoch.toString() : '',
+        };
+      }).toList();
+
+      state = state.copyWith(logs: logsList);
+    }
+
     _locationsSubscription = _ref
         .read(firestoreProvider)
         .collection('users')
         .doc(uid)
         .collection('locations')
-        .orderBy('timestamp', descending: true)
         .snapshots()
-        .listen((snapshot) {
-      final logsList = snapshot.docs.map((doc) {
-        final data = doc.data() as Map<String, dynamic>;
-        final timestampStr = data['timestamp'] != null
-            ? (data['timestamp'] as Timestamp).toDate().toLocal().toString()
-            : 'Just now';
-        final rawLat = (data['lat'] ?? data['latitude'] ?? '').toString();
-        final rawLng = (data['lng'] ?? data['longitude'] ?? '').toString();
-        return <String, String>{
-          'id': doc.id,
-          'location': data['locationName']?.toString() ?? 'Unknown location',
-          'timestamp': timestampStr,
-          'note': data['note']?.toString() ?? '',
-          'aiAdvice': data['aiAdvice']?.toString() ?? '',
-          'latitude': rawLat,
-          'longitude': rawLng,
-          'lat': rawLat,
-          'lng': rawLng,
-          'source': data['source']?.toString() ?? '',
-          'tag_label': data['tag_label']?.toString() ?? '',
-        };
-      }).toList();
-      state = state.copyWith(logs: logsList);
+        .listen((s) {
+      locSnap = s;
+      updateLogs();
+    });
+
+    _historySubscription = _ref
+        .read(firestoreProvider)
+        .collection('users')
+        .doc(uid)
+        .collection('location_history')
+        .snapshots()
+        .listen((s) {
+      histSnap = s;
+      updateLogs();
     });
   }
 
   void _unsubscribe() {
     _locationsSubscription?.cancel();
     _locationsSubscription = null;
+    _historySubscription?.cancel();
+    _historySubscription = null;
     _positionSubscription?.cancel();
     _positionSubscription = null;
   }

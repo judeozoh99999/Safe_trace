@@ -1047,74 +1047,81 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
               builder: (_) => RouteIntelScreen(
                 initialDestLatLng: (lat != 0.0 && lng != 0.0) ? LatLng(lat, lng) : null,
                 initialDestAddress: title,
+                isNearbyAlertHistoricalView: isNearbyAlert,
+                historicalCardTitle: isNearbyAlert ? "Nearby Alert Connection Location" : null,
               ),
             ),
           );
         },
         child: Container(
           margin: const EdgeInsets.only(bottom: 12),
-        decoration: BoxDecoration(
-          color: isDark ? AppColors.cardDark : Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: isDark ? AppColors.dividerDark : const Color(0xFFF3F4F6)),
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: Row(
-          children: [
-            Container(
-              decoration: BoxDecoration(
-                color: isNearbyAlert ? const Color(0xFF6C3FC4).withOpacity(0.15) : (isDark ? const Color(0xFF1F2937) : const Color(0xFFEEF2FF)),
-                shape: BoxShape.circle,
+          decoration: BoxDecoration(
+            color: isDark ? AppColors.cardDark : Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: isDark ? AppColors.dividerDark : const Color(0xFFF3F4F6)),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(
+            children: [
+              Container(
+                decoration: BoxDecoration(
+                  color: isNearbyAlert ? const Color(0xFF6C3FC4).withOpacity(0.15) : (isDark ? const Color(0xFF1F2937) : const Color(0xFFEEF2FF)),
+                  shape: BoxShape.circle,
+                ),
+                padding: const EdgeInsets.all(8),
+                child: Icon(
+                  isNearbyAlert ? Icons.people_alt_rounded : Icons.location_on,
+                  color: isNearbyAlert ? const Color(0xFF6C3FC4) : (isDark ? AppColors.primary : const Color(0xFF4F46E5)),
+                  size: 18,
+                ),
               ),
-              padding: const EdgeInsets.all(8),
-              child: Icon(Icons.location_on, color: isNearbyAlert ? const Color(0xFF6C3FC4) : (isDark ? AppColors.primary : const Color(0xFF4F46E5)), size: 18),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          title,
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w800,
-                            color: isDark ? Colors.white : const Color(0xFF111827),
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      if (isNearbyAlert) ...[
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF6C3FC4),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Text(
-                            "Nearby Alert",
-                            style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            title,
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                              color: isDark ? Colors.white : const Color(0xFF111827),
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
+                        if (isNearbyAlert) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF6C3FC4),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: const Text(
+                              "Nearby Alert",
+                              style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ],
                       ],
-                    ],
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: isDark ? AppColors.textDarkSecondary : const Color(0xFF6B7280),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 2),
+                    Text(
+                      isNearbyAlert ? "Connected via Nearby Alert" : subtitle,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontStyle: isNearbyAlert ? FontStyle.italic : FontStyle.normal,
+                        color: isNearbyAlert ? const Color(0xFF6C3FC4) : (isDark ? AppColors.textDarkSecondary : const Color(0xFF6B7280)),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
             Text(
               time,
               style: TextStyle(
