@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -13,6 +14,8 @@ class ContactDetailScreen extends StatelessWidget {
   final String relationship;
   final bool welfareCheckEnabled;
   final String? requestId;
+  final bool isReadOnlyPendingDeletion;
+  final DateTime? scheduledAt;
 
   const ContactDetailScreen({
     super.key,
@@ -22,6 +25,8 @@ class ContactDetailScreen extends StatelessWidget {
     required this.relationship,
     required this.welfareCheckEnabled,
     this.requestId,
+    this.isReadOnlyPendingDeletion = false,
+    this.scheduledAt,
   });
 
   String _formatRelativeTime(Timestamp? timestamp) {
@@ -49,6 +54,96 @@ class ContactDetailScreen extends StatelessWidget {
     return "$day $month $year at $hour:$minute";
   }
 
+  String _formatCountdownText(DateTime? targetTime) {
+    if (targetTime == null) return "3 days";
+    final diff = targetTime.difference(DateTime.now());
+    if (diff.isNegative) return "imminent";
+    final days = diff.inDays;
+    final hours = diff.inHours.remainder(24);
+    final minutes = diff.inMinutes.remainder(60);
+    if (days >= 1) {
+      return "$days days $hours hours";
+    } else if (hours >= 1) {
+      return "$hours hours $minutes minutes";
+    } else if (minutes >= 1) {
+      return "$minutes minutes";
+    } else {
+      return "imminent";
+    }
+  }
+
+  void _showRemoveConfirmationSheet(BuildContext context, String reqId, String cName) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 24, 20, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.warning_amber_rounded, size: 44, color: Color(0xFFF59E0B)),
+            const SizedBox(height: 12),
+            const Text(
+              "Remove from Trusted Circle",
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF111827)),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              "This contact will be removed in 3 days. They will be notified immediately and can see that removal is pending. You can cancel this within 3 days if you change your mind.",
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 13, color: Colors.grey[700], height: 1.4),
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: Color(0xFFEF4444)),
+                  foregroundColor: const Color(0xFFEF4444),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                onPressed: () async {
+                  Navigator.pop(ctx);
+                  final scheduledFor = Timestamp.fromDate(DateTime.now().add(const Duration(hours: 72)));
+                  try {
+                    await FirebaseFirestore.instance.collection('trusted_circle_requests').doc(reqId).update({
+                      'status': 'pending_deletion',
+                      'deletion_initiated_by': FirebaseAuth.instance.currentUser?.uid,
+                      'deletion_initiated_at': FieldValue.serverTimestamp(),
+                      'deletion_scheduled_for': scheduledFor,
+                      'deletion_cancelled': false,
+                      'notified_of_deletion': false,
+                    });
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text("Removal initiated. Contact will be removed in 3 days.")),
+                      );
+                      Navigator.pop(context);
+                    }
+                  } catch (e) {
+                    debugPrint("Failed to initiate removal: $e");
+                  }
+                },
+                child: const Text("Confirm Removal", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+              ),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text("Cancel", style: TextStyle(color: Color(0xFF6B7280), fontWeight: FontWeight.bold)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -69,6 +164,33 @@ class ContactDetailScreen extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Read-only Pending Deletion Banner
+              if (isReadOnlyPendingDeletion)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFFFF8E1),
+                    border: Border(bottom: BorderSide(color: Color(0xFFFCD34D))),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.warning_amber_rounded, color: Color(0xFFD97706), size: 20),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          "You are being removed from this Trusted Circle in ${_formatCountdownText(scheduledAt)}",
+                          style: const TextStyle(
+                            color: Color(0xFFB45309),
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
               // Top Profile Card
               Container(
                 width: double.infinity,
@@ -161,64 +283,20 @@ class ContactDetailScreen extends StatelessWidget {
                         ),
                       ],
                     ),
-                    if (requestId != null) ...[
-                      const SizedBox(height: 14),
-                      OutlinedButton.icon(
+                    if (!isReadOnlyPendingDeletion && requestId != null) ...[
+                      const SizedBox(height: 16),
+                      OutlinedButton(
                         style: OutlinedButton.styleFrom(
                           foregroundColor: const Color(0xFFEF4444),
                           side: const BorderSide(color: Color(0xFFEF4444)),
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                         ),
-                        icon: const Icon(Icons.delete_outline_rounded, size: 18),
-                        label: const Text("Delete Contact (3-Day Countdown)", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                        onPressed: () async {
-                          final confirmed = await showDialog<bool>(
-                            context: context,
-                            builder: (ctx) => AlertDialog(
-                              title: const Text("Delete Trusted Contact?"),
-                              content: Text(
-                                "Are you sure you want to delete $contactName from your Trusted Circle?\n\n"
-                                "Note: Deletion will take 3 days (72 hours) to complete. You can cancel deletion at any time during the countdown.",
-                              ),
-                              actions: [
-                                TextButton(
-                                  onPressed: () => Navigator.pop(ctx, false),
-                                  child: const Text("Cancel"),
-                                ),
-                                ElevatedButton(
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFFEF4444),
-                                    foregroundColor: Colors.white,
-                                  ),
-                                  onPressed: () => Navigator.pop(ctx, true),
-                                  child: const Text("Request Deletion"),
-                                ),
-                              ],
-                            ),
-                          );
-
-                          if (confirmed == true && requestId != null) {
-                            final scheduledFor = Timestamp.fromDate(DateTime.now().add(const Duration(days: 3)));
-                            try {
-                              await FirebaseFirestore.instance.collection('trusted_circle_requests').doc(requestId).update({
-                                'status': 'deletion_pending',
-                                'deletion_requested': true,
-                                'deletion_requested_by': FirebaseAuth.instance.currentUser?.uid,
-                                'deletion_requested_at': FieldValue.serverTimestamp(),
-                                'deletion_scheduled_for': scheduledFor,
-                              });
-                              if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text("Deletion requested. Contact will be deleted in 3 days.")),
-                                );
-                                Navigator.pop(context);
-                              }
-                            } catch (e) {
-                              debugPrint("Failed to request deletion: $e");
-                            }
-                          }
-                        },
+                        onPressed: () => _showRemoveConfirmationSheet(context, requestId!, contactName),
+                        child: const Text(
+                          "Remove from Circle",
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                        ),
                       ),
                     ],
                   ],

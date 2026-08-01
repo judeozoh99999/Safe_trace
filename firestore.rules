@@ -88,5 +88,22 @@ service cloud.firestore {
       // No user can create/update/delete directly - managed by Cloud Functions / backend
       allow create, update, delete: if false;
     }
+
+    // trusted_circle_requests collection rules
+    match /trusted_circle_requests/{requestId} {
+      allow read: if request.auth != null && 
+        (request.auth.uid == resource.data.requester_uid || 
+         request.auth.uid == resource.data.recipient_uid ||
+         request.auth.uid == resource.data.deletion_initiated_by);
+      allow create: if request.auth != null && 
+        request.auth.uid == request.resource.data.requester_uid;
+      allow update: if request.auth != null && 
+        (request.auth.uid == resource.data.requester_uid || 
+         request.auth.uid == resource.data.recipient_uid ||
+         request.auth.uid == resource.data.deletion_initiated_by);
+      allow delete: if request.auth != null && 
+        (request.auth.uid == resource.data.requester_uid || 
+         request.auth.uid == resource.data.recipient_uid);
+    }
   }
 }

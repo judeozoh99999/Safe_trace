@@ -48,33 +48,231 @@ exports.purgeOldLocations = functions.pubsub.schedule('0 0 * * *')
     }
   });
 
-// Scheduled function running every hour to delete pending trusted circle requests whose 3-day window has expired
-exports.purgePendingDeletions = functions.pubsub.schedule('0 * * * *')
+// ─── 3-Day Pending Deletions System ──────────────────────────────────────────
+
+// Triggers on document update in trusted_circle_requests when status changes to pending_deletion
+exports.onPendingDeletionCreated = functions.firestore
+  .document('trusted_circle_requests/{docId}')
+  .onUpdate(async (change, context) => {
+    const beforeData = change.before.data();
+    const afterData = change.after.data();
+
+    if (!afterData) return null;
+    if (beforeData.status !== 'pending_deletion' && afterData.status === 'pending_deletion') {
+      const docId = context.params.docId;
+      const initiatorUid = afterData.deletion_initiated_by || afterData.requester_uid;
+      const recipientUid = (afterData.requester_uid === initiatorUid) ? afterData.recipient_uid : afterData.requester_uid;
+
+      if (!recipientUid) return null;
+
+      let initiatorFirstName = 'A trusted contact';
+      if (initiatorUid === afterData.requester_uid) {
+        initiatorFirstName = afterData.requester_first_name || 'Someone';
+      } else {
+        initiatorFirstName = afterData.recipient_first_name || 'Someone';
+      }
+
+      const title = 'Trusted Circle Update';
+      const body = `${initiatorFirstName} is removing you from their Trusted Circle. This will complete in 3 days. Tap to view details.`;
+
+      // 1. Send FCM push notification
+      const userDoc = await db.collection('users').doc(recipientUid).get();
+      const fcmToken = userDoc.exists ? userDoc.data().fcm_token : null;
+      if (fcmToken) {
+        try {
+          await admin.messaging().send({
+            token: fcmToken,
+            notification: { title, body },
+            data: {
+              type: 'pending_deletion',
+              requestId: docId,
+              click_action: 'FLUTTER_NOTIFICATION_CLICK'
+            }
+          });
+        } catch (err) {
+          console.error('Error sending FCM push for pending deletion:', err);
+        }
+      }
+
+      // 2. Write notification document
+      await db.collection('users').doc(recipientUid).collection('notifications').add({
+        title,
+        body,
+        notification_type: 'pending_deletion',
+        request_id: docId,
+        created_at: admin.firestore.FieldValue.serverTimestamp(),
+        read: false
+      });
+
+      // 3. Mark notified_of_deletion as true
+      return change.after.ref.update({ notified_of_deletion: true });
+    }
+    return null;
+  });
+
+// Triggers on document update in trusted_circle_requests when status changes from pending_deletion back to accepted
+exports.onDeletionCancelled = functions.firestore
+  .document('trusted_circle_requests/{docId}')
+  .onUpdate(async (change, context) => {
+    const beforeData = change.before.data();
+    const afterData = change.after.data();
+
+    if (!afterData) return null;
+    if (beforeData.status === 'pending_deletion' && afterData.status === 'accepted') {
+      const docId = context.params.docId;
+      const prevInitiatorUid = beforeData.deletion_initiated_by || beforeData.requester_uid;
+      const targetUid = (beforeData.requester_uid === prevInitiatorUid) ? beforeData.recipient_uid : beforeData.requester_uid;
+
+      if (!targetUid) return null;
+
+      let initiatorFirstName = 'A trusted contact';
+      if (prevInitiatorUid === beforeData.requester_uid) {
+        initiatorFirstName = beforeData.requester_first_name || 'Someone';
+      } else {
+        initiatorFirstName = beforeData.recipient_first_name || 'Someone';
+      }
+
+      const title = 'Trusted Circle Update';
+      const body = `${initiatorFirstName} has cancelled your removal. You remain in their Trusted Circle.`;
+
+      // 1. Send FCM push notification
+      const userDoc = await db.collection('users').doc(targetUid).get();
+      const fcmToken = userDoc.exists ? userDoc.data().fcm_token : null;
+      if (fcmToken) {
+        try {
+          await admin.messaging().send({
+            token: fcmToken,
+            notification: { title, body },
+            data: {
+              type: 'deletion_cancelled',
+              requestId: docId,
+              click_action: 'FLUTTER_NOTIFICATION_CLICK'
+            }
+          });
+        } catch (err) {
+          console.error('Error sending FCM push for deletion cancellation:', err);
+        }
+      }
+
+      // 2. Write notification document
+      await db.collection('users').doc(targetUid).collection('notifications').add({
+        title,
+        body,
+        notification_type: 'deletion_cancelled',
+        request_id: docId,
+        created_at: admin.firestore.FieldValue.serverTimestamp(),
+        read: false
+      });
+    }
+    return null;
+  });
+
+// Scheduled function running every hour to process expired pending deletions after 72 hours
+exports.processPendingDeletions = functions.pubsub.schedule('every 1 hours')
   .timeZone('Africa/Lagos')
   .onRun(async (context) => {
     const now = admin.firestore.Timestamp.now();
-    console.log(`Checking for expired 3-day trusted circle deletions at: ${now.toDate().toISOString()}`);
+    console.log(`Processing pending trusted circle deletions at: ${now.toDate().toISOString()}`);
 
     try {
       const snap = await db.collection('trusted_circle_requests')
+        .where('status', '==', 'pending_deletion')
         .where('deletion_scheduled_for', '<=', now)
+        .where('deletion_cancelled', '==', false)
         .get();
 
       if (snap.empty) {
-        console.log('No expired deletion requests found.');
+        console.log('No expired pending deletion requests found.');
         return null;
       }
 
-      const batch = db.batch();
-      snap.docs.forEach((doc) => {
-        batch.delete(doc.ref);
-      });
+      for (const doc of snap.docs) {
+        const data = doc.data();
+        const reqUid = data.requester_uid;
+        const recUid = data.recipient_uid;
+        const initiatorUid = data.deletion_initiated_by || reqUid;
+        const targetUid = (reqUid === initiatorUid) ? recUid : reqUid;
 
-      await batch.commit();
-      console.log(`Purged ${snap.size} expired trusted circle requests.`);
+        const reqFirstName = data.requester_first_name || 'Someone';
+        const recFirstName = data.recipient_first_name || 'Someone';
+        const initiatorFirstName = (initiatorUid === reqUid) ? reqFirstName : recFirstName;
+        const targetFirstName = (initiatorUid === reqUid) ? recFirstName : reqFirstName;
+
+        // 1. Send FCM to removed user
+        const targetUserDoc = await db.collection('users').doc(targetUid).get();
+        const targetFcmToken = targetUserDoc.exists ? targetUserDoc.data().fcm_token : null;
+        if (targetFcmToken) {
+          try {
+            await admin.messaging().send({
+              token: targetFcmToken,
+              notification: {
+                title: 'Trusted Circle Update',
+                body: `You have been removed from ${initiatorFirstName}'s Trusted Circle. The connection is now closed.`
+              }
+            });
+          } catch (err) {
+            console.error(`Error sending FCM to target user ${targetUid}:`, err);
+          }
+        }
+
+        // 2. Send FCM to initiator user
+        const initiatorUserDoc = await db.collection('users').doc(initiatorUid).get();
+        const initiatorFcmToken = initiatorUserDoc.exists ? initiatorUserDoc.data().fcm_token : null;
+        if (initiatorFcmToken) {
+          try {
+            await admin.messaging().send({
+              token: initiatorFcmToken,
+              notification: {
+                title: 'Trusted Circle Update',
+                body: `${targetFirstName} has been removed from your Trusted Circle.`
+              }
+            });
+          } catch (err) {
+            console.error(`Error sending FCM to initiator user ${initiatorUid}:`, err);
+          }
+        }
+
+        // 3. Write notification documents to both users
+        await db.collection('users').doc(targetUid).collection('notifications').add({
+          title: 'Trusted Circle Update',
+          body: `You have been removed from ${initiatorFirstName}'s Trusted Circle. The connection is now closed.`,
+          notification_type: 'deletion_completed',
+          created_at: admin.firestore.FieldValue.serverTimestamp(),
+          read: false
+        });
+
+        await db.collection('users').doc(initiatorUid).collection('notifications').add({
+          title: 'Trusted Circle Update',
+          body: `${targetFirstName} has been removed from your Trusted Circle.`,
+          notification_type: 'deletion_completed',
+          created_at: admin.firestore.FieldValue.serverTimestamp(),
+          read: false
+        });
+
+        // 4. Decrement accepted_contacts_count by 1 on both users (clamped at 0)
+        const updateCount = async (uId) => {
+          const uRef = db.collection('users').doc(uId);
+          await db.runTransaction(async (tx) => {
+            const uSnap = await tx.get(uRef);
+            if (uSnap.exists) {
+              const currentCount = uSnap.data().accepted_contacts_count || 0;
+              const newCount = Math.max(0, currentCount - 1);
+              tx.update(uRef, { accepted_contacts_count: newCount });
+            }
+          });
+        };
+
+        if (reqUid) await updateCount(reqUid);
+        if (recUid) await updateCount(recUid);
+
+        // 5. Delete document permanently
+        await doc.ref.delete();
+        console.log(`Completed 3-day deletion for request: ${doc.id}`);
+      }
+
       return null;
     } catch (error) {
-      console.error('Error executing purgePendingDeletions:', error);
+      console.error('Error executing processPendingDeletions:', error);
       throw error;
     }
   });

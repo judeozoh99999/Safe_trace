@@ -128,7 +128,7 @@ class _PanicAlertScreenState extends ConsumerState<PanicAlertScreen> with Ticker
     try {
       final reqSnap = await FirebaseFirestore.instance
           .collection('trusted_circle_requests')
-          .where('status', isEqualTo: 'accepted')
+          .where('status', whereIn: ['accepted', 'pending_deletion'])
           .get();
 
       for (final doc in reqSnap.docs) {
