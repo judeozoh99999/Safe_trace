@@ -81,7 +81,7 @@ class SpeechSentinelService {
         onStatus: (status) {
           debugPrint("[SPEECH_SENTINEL] Status: $status");
           if (status == 'done' || status == 'notListening') {
-            if (_isListening && _isAmplitudeActive) {
+            if (_isListening) {
               _restartListeningStream();
             }
           }
@@ -105,9 +105,6 @@ class SpeechSentinelService {
     _liveTranscription = "";
     onLiveTranscriptionChanged?.call("");
 
-    // Start amplitude monitoring for API cost optimization (-20 dB threshold)
-    _startAmplitudeMonitoring();
-
     // Start 5-minute auto-reconnect timer (Speech API 300s limit)
     _start5MinReconnectTimer();
 
@@ -119,7 +116,6 @@ class SpeechSentinelService {
 
     try {
       final localeId = _getPrimaryLocale();
-      final altLanguages = _getAlternativeLanguageCodes();
 
       await _speech.listen(
         onResult: (result) {
@@ -131,6 +127,7 @@ class SpeechSentinelService {
             final threatResult = ThreatDetectionEngine.evaluate(_liveTranscription);
 
             if (threatResult.detected) {
+              debugPrint("[SPEECH_SENTINEL] Threat detected: ${threatResult.matchedPhrase} (Cat: ${threatResult.threatCategory}, Conf: ${threatResult.confidence})");
               onThreatDetected?.call(threatResult);
 
               // Trigger alert service
@@ -148,42 +145,12 @@ class SpeechSentinelService {
         listenFor: const Duration(minutes: 5), // 5-minute continuous chunk
         pauseFor: const Duration(seconds: 5),
         partialResults: true, // Interim results enabled!
-        onDevice: false, // Stream to cloud model for maximum Nigerian English accuracy
         listenMode: stt.ListenMode.dictation,
       );
 
-      debugPrint("[SPEECH_SENTINEL] Started listening stream (Locale: $localeId, Alt: $altLanguages)");
+      debugPrint("[SPEECH_SENTINEL] Started listening stream (Locale: $localeId)");
     } catch (e) {
       debugPrint("[SPEECH_SENTINEL] Listen error: $e");
-    }
-  }
-
-  void _startAmplitudeMonitoring() {
-    _amplitudeSub?.cancel();
-    try {
-      // Monitor amplitude every 500ms
-      _amplitudeSub = _audioRecorder
-          .onAmplitudeChanged(const Duration(milliseconds: 500))
-          .listen((amp) {
-        final currentDb = amp.current; // dB value
-        // Only stream speech when amplitude > -20 dB (cost optimization)
-        if (currentDb <= -20.0) {
-          if (_isAmplitudeActive) {
-            _isAmplitudeActive = false;
-            debugPrint("[SPEECH_SENTINEL] Environment quiet (${currentDb.toStringAsFixed(1)} dB <= -20dB). Pausing stream to optimize API cost.");
-          }
-        } else {
-          if (!_isAmplitudeActive) {
-            _isAmplitudeActive = true;
-            debugPrint("[SPEECH_SENTINEL] Sound detected (${currentDb.toStringAsFixed(1)} dB > -20dB). Resuming stream.");
-            if (_isListening && !_speech.isListening) {
-              _startListeningStream();
-            }
-          }
-        }
-      });
-    } catch (e) {
-      debugPrint("[SPEECH_SENTINEL] Amplitude monitoring setup error: $e");
     }
   }
 
@@ -192,7 +159,7 @@ class SpeechSentinelService {
     // Reconnect every 4 mins 58s with 2s overlap so no audio is lost
     _reconnectTimer = Timer.periodic(const Duration(minutes: 4, seconds: 58), (_) {
       if (_isListening) {
-        debugPrint("[SPEECH_SENTINEL] 5-minute limit reached. Executing seamless stream reconnection...");
+        debugPrint("[SPEECH_SENTINEL] Executing stream refresh...");
         _restartListeningStream();
       }
     });
