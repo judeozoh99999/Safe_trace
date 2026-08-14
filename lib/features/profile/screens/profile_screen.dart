@@ -7,6 +7,7 @@ import '../../location/providers/home_provider.dart';
 import '../../contacts/providers/trusted_contacts_provider.dart';
 import '../../../core/theme/theme_provider.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/providers/subscription_provider.dart';
 
 Route _createRoute(Widget page) {
   return PageRouteBuilder(
@@ -145,8 +146,8 @@ class ProfileScreen extends ConsumerWidget {
                             ],
                           ),
                           const SizedBox(height: 16),
-                          // Get SafeTrace Plus Button (Full width) - Now Pulsating!
-                          PulsingButton(
+                          // SafeTrace Plus / Active button
+                          _SubscriptionButton(
                             onPressed: () {
                               Navigator.of(context).push(_createRoute(const SafeTracePlusScreen()));
                             },
@@ -486,6 +487,49 @@ class ProfileScreen extends ConsumerWidget {
         ),
       ),
     );
+  }
+}
+
+// ── Subscription-aware button (green when Plus, red pulsing when Free) ────────
+class _SubscriptionButton extends ConsumerWidget {
+  final VoidCallback onPressed;
+  const _SubscriptionButton({required this.onPressed});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final subAsync = ref.watch(subscriptionProvider);
+    final isPlus = subAsync.maybeWhen(
+      data: (sub) => sub.isPlus,
+      orElse: () => false,
+    );
+
+    if (isPlus) {
+      return SizedBox(
+        width: double.infinity,
+        height: 48,
+        child: ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF16A34A),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+            elevation: 0,
+          ),
+          onPressed: onPressed,
+          child: const Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.check_circle_rounded, size: 16, color: Colors.white),
+              SizedBox(width: 8),
+              Text(
+                'SafeTrace Plus · Active',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 14),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return PulsingButton(onPressed: onPressed);
   }
 }
 
