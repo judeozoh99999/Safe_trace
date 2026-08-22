@@ -5,7 +5,7 @@ admin.initializeApp();
 const db = admin.firestore();
 
 // Scheduled function running every day at midnight (00:00 Lagos Time)
-exports.purgeOldLocations = functions.pubsub.schedule('0 0 * * *')
+exports.purgeOldLocations = functions.region('europe-west3').pubsub.schedule('0 0 * * *')
   .timeZone('Africa/Lagos')
   .onRun(async (context) => {
     const sevenDaysAgo = new Date();
@@ -1082,21 +1082,22 @@ exports.cleanupAiSummaries = functions.pubsub.schedule('0 */6 * * *')
       throw err;
     }
   });// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // verifyPaystackPayment — Verify Paystack transaction and activate Plus plan
 // ─────────────────────────────────────────────────────────────────────────────
 const https = require('https');
 
-exports.verifyPaystackPayment = functions.https.onCall(async (data, context) => {
+exports.verifyPaystackPayment = functions.region('europe-west3').https.onCall(async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'User must be signed in.');
   }
 
-  const { reference } = data;
+  const { reference } = data || {};
   if (!reference || typeof reference !== 'string') {
     throw new functions.https.HttpsError('invalid-argument', 'A valid Paystack reference is required.');
   }
 
-  const paystackSecretKey = functions.config().paystack?.secret_key || process.env.PAYSTACK_SECRET_KEY || '';
+  const paystackSecretKey = process.env.PAYSTACK_SECRET_KEY || '';
   const uid = context.auth.uid;
 
   // Call Paystack verify endpoint
@@ -1154,7 +1155,6 @@ exports.verifyPaystackPayment = functions.https.onCall(async (data, context) => 
   const existingRef = await db.collection('paystack_transactions').doc(reference).get();
   if (existingRef.exists) {
     console.warn('[PAYSTACK] Reference already used:', reference);
-    // Still return success — payment already applied
     return { success: true, already_applied: true };
   }
 
@@ -1198,9 +1198,9 @@ exports.verifyPaystackPayment = functions.https.onCall(async (data, context) => 
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// cancelSubscription — Mark user subscription as cancelled (no refund logic)
+// cancelSubscription — Mark user subscription as cancelled
 // ─────────────────────────────────────────────────────────────────────────────
-exports.cancelSubscription = functions.https.onCall(async (data, context) => {
+exports.cancelSubscription = functions.region('europe-west3').https.onCall(async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'User must be signed in.');
   }
@@ -1215,3 +1215,4 @@ exports.cancelSubscription = functions.https.onCall(async (data, context) => {
   console.log(`[SUBSCRIPTION] Cancelled for uid=${uid}`);
   return { success: true };
 });
+

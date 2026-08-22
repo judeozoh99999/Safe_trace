@@ -130,11 +130,11 @@ class SpeechSentinelService {
               debugPrint("[SPEECH_SENTINEL] Threat detected: ${threatResult.matchedPhrase} (Cat: ${threatResult.threatCategory}, Conf: ${threatResult.confidence})");
               onThreatDetected?.call(threatResult);
 
-              // Trigger alert service
+              // Trigger alert service instantly for any recognized distress statement/word
               AlertTriggerService().triggerAlert(
                 matchedPhrase: threatResult.matchedPhrase,
                 threatCategory: threatResult.threatCategory,
-                confidence: threatResult.confidence,
+                confidence: 1.0, // Ensures instant trigger for any detected distress/threat statement!
                 alertType: 'speech',
                 threshold: _sensitivityThreshold,
               );

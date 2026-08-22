@@ -81,21 +81,21 @@ class ThreatDetectionEngine {
     "i go let you go after", "no one needs to know", "nobody need to know"
   ];
 
-  // ─── Distress Signals (Base confidence 0.70) ───
+  // ─── Distress Signals (Base confidence 0.95 — Instant Alert Trigger) ───
   static final List<String> distressSignals = [
-    "help me", "somebody help me", "help please", "please help", "help help help",
-    "i dont want to die", "i dont want trouble", "please dont hurt me",
-    "please dont kill me", "please leave me alone", "please i beg you",
-    "i beg you please", "i am begging you", "abeg leave me", "abeg no do me anything",
-    "i have children", "i have kids", "i have a family", "i swear i wont tell anyone",
-    "i wont say anything", "i promise i wont tell", "please take everything",
-    "take everything just dont hurt me", "i will give you everything",
-    "please i am scared", "i am frightened", "this person is trying to hurt me",
-    "someone is threatening me", "i am in danger", "i need help", "call the police",
-    "call police", "shout police", "ole ole ole", "armed robbers", "thief thief thief",
-    "help oh", "somebody come", "come and help me", "na me dem wan kill",
-    "dem wan kill me", "dem dey threaten me", "i think i am being followed",
-    "someone is following me", "i dont feel safe", "i feel unsafe right now"
+    "help", "help me", "somebody help me", "help please", "please help", "help help help",
+    "save me", "please save me", "somebody save me", "i am in danger", "in danger", "i'm in danger",
+    "call police", "call the police", "police", "armed robbers", "thief", "thieves",
+    "help oh", "somebody come", "come and help me", "dem wan kill me", "na me dem wan kill",
+    "somebody help", "i dont feel safe", "i feel unsafe", "please dont hurt me",
+    "please dont kill me", "leave me alone", "i am being followed", "someone is following me",
+    "i am scared", "i'm scared", "stop", "leave me", "abeg leave me", "abeg no do me anything",
+    "abeg help", "abeg help me", "i dont want to die", "i dont want trouble",
+    "please i beg you", "i beg you please", "i am begging you", "i have children",
+    "i have kids", "i have a family", "i swear i wont tell anyone", "i wont say anything",
+    "i promise i wont tell", "please take everything", "take everything just dont hurt me",
+    "i will give you everything", "this person is trying to hurt me", "someone is threatening me",
+    "i need help", "shout police", "ole ole ole", "dem dey threaten me", "distress", "emergency"
   ];
 
   // ─── Nigerian Pidgin Additional Phrases (Base confidence 0.90) ───
@@ -151,7 +151,7 @@ class ThreatDetectionEngine {
     final disMatch = _findMatch(normalized, distressSignals);
     if (disMatch != null) {
       categoryMatches['distress'] = disMatch;
-      categoryConfidences['distress'] = 0.70;
+      categoryConfidences['distress'] = 0.95;
     }
 
     // Scan Pidgin

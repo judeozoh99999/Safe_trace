@@ -179,10 +179,8 @@ class _WatchModeScreenState extends ConsumerState<WatchModeScreen> with SingleTi
                     final wasActive = sentinelState.isActive;
                     ref.read(sentinelProvider.notifier).toggleActive();
                     if (wasActive) {
-                      SystemSound.play(SystemSoundType.alert);
                       HapticFeedback.vibrate();
                     } else {
-                      SystemSound.play(SystemSoundType.click);
                       HapticFeedback.heavyImpact();
                     }
                   },
@@ -528,10 +526,8 @@ class _WatchModeScreenState extends ConsumerState<WatchModeScreen> with SingleTi
                   final wasActive = sentinelState.isActive;
                   ref.read(sentinelProvider.notifier).toggleActive();
                   if (wasActive) {
-                    SystemSound.play(SystemSoundType.alert);
                     HapticFeedback.vibrate();
                   } else {
-                    SystemSound.play(SystemSoundType.click);
                     HapticFeedback.heavyImpact();
                   }
                 },

@@ -42,6 +42,8 @@ app.*.map.json
 # Secrets & Temp
 .env
 scratch/
+node_modules/
+**/node_modules/
 
 # Android Studio will place build artifacts here
 /android/app/debug

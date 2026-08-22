@@ -2,6 +2,7 @@ import 'dart:math';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_paystack_plus/flutter_paystack_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -18,25 +19,23 @@ class SafeTracePlusScreen extends ConsumerStatefulWidget {
 
 class _SafeTracePlusScreenState extends ConsumerState<SafeTracePlusScreen> {
   bool _isProcessing = false;
+  String? _activeRef;
 
   @override
   void initState() {
     super.initState();
-  }
-
-  @override
-  void dispose() {
-    super.dispose();
+    _activeRef = _generateRef();
   }
 
   String _generateRef() {
     const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
     final rand = Random.secure();
-    final suffix = List.generate(16, (_) => chars[rand.nextInt(chars.length)]).join();
+    final suffix = List.generate(12, (_) => chars[rand.nextInt(chars.length)]).join();
     return 'STR_${suffix.toUpperCase()}';
   }
 
-  Future<void> _startPayment() async {
+  /// Open Paystack popup in Bank Transfer mode
+  Future<void> _startPaystackPopup() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
       _showError('You need to be signed in to subscribe.');
@@ -53,34 +52,36 @@ class _SafeTracePlusScreenState extends ConsumerState<SafeTracePlusScreen> {
     setState(() => _isProcessing = true);
 
     try {
-      final reference = _generateRef();
+      final refToUse = _activeRef ?? _generateRef();
 
       await FlutterPaystackPlus.openPaystackPopup(
         context: context,
         publicKey: publicKey,
         customerEmail: email,
         amount: '199900', // ₦1,999 in kobo
-        reference: reference,
+        reference: refToUse,
         currency: 'NGN',
         callBackUrl: 'https://safetrace.app/payment/callback',
         onClosed: () {
           if (mounted) setState(() => _isProcessing = false);
         },
         onSuccess: () async {
-          await _verifyAndActivate(reference);
+          await _verifyAndActivate(refToUse);
         },
       );
     } catch (e) {
       debugPrint('[PAYSTACK] Error: $e');
       if (mounted) {
         setState(() => _isProcessing = false);
-        _showError('Payment failed. Please try again.');
+        _showError('Could not launch Paystack sheet. You can transfer directly using the reference below.');
       }
     }
   }
 
-  Future<void> _verifyAndActivate(String reference) async {
+  /// Called when user taps "I Have Paid — Verify Payment"
+  Future<void> _verifyAndActivate([String? refParam]) async {
     if (!mounted) return;
+    final reference = refParam ?? _activeRef ?? _generateRef();
     setState(() => _isProcessing = true);
 
     try {
@@ -90,13 +91,19 @@ class _SafeTracePlusScreenState extends ConsumerState<SafeTracePlusScreen> {
       final data = result.data as Map<dynamic, dynamic>;
       if (data['success'] == true && mounted) {
         _showSuccessSheet();
+      } else if (mounted) {
+        _showError('Bank transfer not confirmed by Paystack yet. Please complete the transfer of ₦1,999 and tap "I Have Paid" again.');
       }
     } on FirebaseFunctionsException catch (e) {
       debugPrint('[PAYSTACK] Verification error: ${e.code} — ${e.message}');
-      if (mounted) _showError('Verification failed: ${e.message}. Please contact support with reference: $reference');
+      if (mounted) {
+        _showError('Transfer not detected yet. Once sent, tap "I Have Paid" again to complete subscription.');
+      }
     } catch (e) {
       debugPrint('[PAYSTACK] Unexpected verification error: $e');
-      if (mounted) _showError('Unexpected error. Contact support with reference: $reference');
+      if (mounted) {
+        _showError('Transfer not detected yet. Once sent, tap "I Have Paid" again.');
+      }
     } finally {
       if (mounted) setState(() => _isProcessing = false);
     }
@@ -109,6 +116,19 @@ class _SafeTracePlusScreenState extends ConsumerState<SafeTracePlusScreen> {
         content: Text(msg),
         backgroundColor: const Color(0xFFE63946),
         behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 4),
+      ),
+    );
+  }
+
+  void _copyToClipboard(String text, String label) {
+    Clipboard.setData(ClipboardData(text: text));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('$label copied to clipboard!'),
+        backgroundColor: const Color(0xFF16A34A),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 2),
       ),
     );
   }
@@ -144,7 +164,7 @@ class _SafeTracePlusScreenState extends ConsumerState<SafeTracePlusScreen> {
             ),
             const SizedBox(height: 10),
             const Text(
-              'Welcome to SafeTrace Plus. Your subscription is now active for 30 days.',
+              'Your bank transfer has been verified. SafeTrace Plus features are now active for 30 days.',
               style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 14, height: 1.5),
               textAlign: TextAlign.center,
             ),
@@ -186,13 +206,15 @@ class _SafeTracePlusScreenState extends ConsumerState<SafeTracePlusScreen> {
 
   // ─── PURCHASE SCREEN ─────────────────────────────────────────────────────────
   Widget _buildPurchaseScreen() {
+    final refToUse = _activeRef ?? 'STR_TRF';
+
     return Scaffold(
       backgroundColor: const Color(0xFF0F1117),
       body: SafeArea(
         child: Stack(
           children: [
             SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 120),
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 160),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -239,7 +261,7 @@ class _SafeTracePlusScreenState extends ConsumerState<SafeTracePlusScreen> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 32),
+                  const SizedBox(height: 24),
 
                   // ── Hero Headline ──
                   const Text(
@@ -267,11 +289,102 @@ class _SafeTracePlusScreenState extends ConsumerState<SafeTracePlusScreen> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 28),
+                  const SizedBox(height: 24),
 
                   // ── Feature Comparison Table ──
                   _buildComparisonTable(),
-                  const SizedBox(height: 28),
+                  const SizedBox(height: 24),
+
+                  // ── Bank Transfer Instructions Card ──
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1A1D27),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: const Color(0xFF2E3347)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFEF4444).withOpacity(0.15),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Icon(Icons.account_balance_rounded, color: Color(0xFFEF4444), size: 20),
+                            ),
+                            const SizedBox(width: 12),
+                            const Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Bank Transfer Payment',
+                                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 15),
+                                  ),
+                                  Text(
+                                    'Pay via bank app, USSD or transfer',
+                                    style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 12),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        const Divider(color: Color(0xFF2E3347), height: 1),
+                        const SizedBox(height: 16),
+
+                        // Amount to pay
+                        _buildTransferDetailRow(
+                          label: 'Exact Amount to Pay',
+                          value: '₦1,999',
+                          valueColor: const Color(0xFF4ADE80),
+                          onCopy: () => _copyToClipboard('1999', 'Amount'),
+                        ),
+                        const SizedBox(height: 12),
+
+                        // Reference
+                        _buildTransferDetailRow(
+                          label: 'Transfer Reference',
+                          value: refToUse,
+                          valueColor: Colors.white,
+                          onCopy: () => _copyToClipboard(refToUse, 'Reference'),
+                        ),
+                        const SizedBox(height: 16),
+
+                        // Steps list
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF12141C),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'HOW TO PAY VIA BANK TRANSFER:',
+                                style: TextStyle(color: Color(0xFF6B7280), fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 0.5),
+                              ),
+                              SizedBox(height: 8),
+                              Text(
+                                '1. Open your bank app or dial USSD.\n'
+                                '2. Tap "Open Paystack Transfer" below or transfer ₦1,999 using reference above.\n'
+                                '3. After completing transfer, tap "I Have Paid" to verify instantly.',
+                                style: TextStyle(color: Color(0xFFD1D5DB), fontSize: 12, height: 1.5),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 24),
 
                   // ── Trust Badges ──
                   Row(
@@ -288,13 +401,13 @@ class _SafeTracePlusScreenState extends ConsumerState<SafeTracePlusScreen> {
               ),
             ),
 
-            // ── Sticky Bottom CTA ──
+            // ── Sticky Bottom Buttons ──
             Positioned(
               bottom: 0,
               left: 0,
               right: 0,
               child: Container(
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
@@ -308,16 +421,17 @@ class _SafeTracePlusScreenState extends ConsumerState<SafeTracePlusScreen> {
                 ),
                 child: Column(
                   children: [
+                    // Primary "I Have Paid" Button
                     SizedBox(
                       width: double.infinity,
-                      height: 56,
+                      height: 52,
                       child: ElevatedButton(
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFEF4444),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          backgroundColor: const Color(0xFF16A34A),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                           elevation: 0,
                         ),
-                        onPressed: _isProcessing ? null : _startPayment,
+                        onPressed: _isProcessing ? null : () => _verifyAndActivate(),
                         child: _isProcessing
                             ? const SizedBox(
                                 width: 22,
@@ -330,24 +444,53 @@ class _SafeTracePlusScreenState extends ConsumerState<SafeTracePlusScreen> {
                             : const Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  Icon(Icons.shield_rounded, color: Colors.white, size: 18),
+                                  Icon(Icons.check_circle_rounded, color: Colors.white, size: 18),
                                   SizedBox(width: 10),
                                   Text(
-                                    'Subscribe — ₦1,999 / month',
+                                    'I Have Paid — Verify Payment',
                                     style: TextStyle(
                                       color: Colors.white,
                                       fontWeight: FontWeight.w900,
-                                      fontSize: 16,
+                                      fontSize: 15,
                                     ),
                                   ),
                                 ],
                               ),
                       ),
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 8),
+
+                    // Secondary Paystack Popup button
+                    SizedBox(
+                      width: double.infinity,
+                      height: 44,
+                      child: OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: Color(0xFFEF4444)),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        ),
+                        onPressed: _isProcessing ? null : _startPaystackPopup,
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.account_balance_rounded, color: Color(0xFFEF4444), size: 16),
+                            SizedBox(width: 8),
+                            Text(
+                              'Open Paystack Bank Transfer Sheet',
+                              style: TextStyle(
+                                color: Color(0xFFEF4444),
+                                fontWeight: FontWeight.w700,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
                     const Text(
-                      'Billed monthly via Paystack · Cancel anytime',
-                      style: TextStyle(color: Color(0xFF6B7280), fontSize: 12),
+                      'SafeTrace Plus · Cancel anytime',
+                      style: TextStyle(color: Color(0xFF6B7280), fontSize: 11),
                       textAlign: TextAlign.center,
                     ),
                   ],
@@ -357,6 +500,32 @@ class _SafeTracePlusScreenState extends ConsumerState<SafeTracePlusScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildTransferDetailRow({
+    required String label,
+    required String value,
+    required Color valueColor,
+    required VoidCallback onCopy,
+  }) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label, style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 12)),
+            const SizedBox(height: 2),
+            Text(value, style: TextStyle(color: valueColor, fontWeight: FontWeight.w900, fontSize: 16)),
+          ],
+        ),
+        IconButton(
+          onPressed: onCopy,
+          icon: const Icon(Icons.copy_rounded, color: Color(0xFF9CA3AF), size: 18),
+          tooltip: 'Copy $label',
+        ),
+      ],
     );
   }
 
