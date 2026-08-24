@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -83,14 +84,47 @@ class _SafeTracePlusScreenState extends ConsumerState<SafeTracePlusScreen> {
     }
   }
 
-  /// Called when user taps "I Have Paid — Verify Payment"
+  /// Called when user taps "Activate Free Test Subscription (₦0)" / "I Have Paid"
   Future<void> _verifyAndActivate([String? refParam]) async {
     if (!mounted) return;
     final reference = refParam ?? _activeRef ?? _generateRef();
     setState(() => _isProcessing = true);
 
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      if (mounted) {
+        setState(() => _isProcessing = false);
+        _showError('You must be signed in to activate subscription.');
+      }
+      return;
+    }
+
     try {
-      final callable = FirebaseFunctions.instance.httpsCallable('verifyPaystackPayment');
+      if (isTestMode) {
+        // Direct local Firestore write for instant, 100% reliable ₦0 Test Mode activation!
+        final now = DateTime.now();
+        final expiresAt = now.add(const Duration(days: 30));
+
+        await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+          'subscription_tier': 'plus',
+          'subscription_active': true,
+          'subscription_plan': 'SafeTrace Plus (Test Mode)',
+          'subscription_amount': 0,
+          'subscription_currency': 'NGN',
+          'subscription_started_at': FieldValue.serverTimestamp(),
+          'subscription_expires_at': Timestamp.fromDate(expiresAt),
+          'paystack_reference': reference,
+        }, SetOptions(merge: true));
+
+        debugPrint('[TEST_MODE] SafeTrace Plus activated directly for user ${user.uid}');
+        if (mounted) {
+          _showSuccessSheet();
+        }
+        return;
+      }
+
+      // Live Mode: Call Firebase Cloud Function in europe-west3 region
+      final callable = FirebaseFunctions.instanceFor(region: 'europe-west3').httpsCallable('verifyPaystackPayment');
       final result = await callable.call({'reference': reference});
 
       final data = result.data as Map<dynamic, dynamic>;
@@ -107,7 +141,7 @@ class _SafeTracePlusScreenState extends ConsumerState<SafeTracePlusScreen> {
     } catch (e) {
       debugPrint('[PAYSTACK] Unexpected verification error: $e');
       if (mounted) {
-        _showError('Transfer not detected yet. Once sent, tap "I Have Paid" again.');
+        _showError('Error activating subscription. Please try again.');
       }
     } finally {
       if (mounted) setState(() => _isProcessing = false);
