@@ -1100,55 +1100,64 @@ exports.verifyPaystackPayment = functions.region('europe-west3').https.onCall(as
   const paystackSecretKey = process.env.PAYSTACK_SECRET_KEY || '';
   const uid = context.auth.uid;
 
-  // Call Paystack verify endpoint
-  let paystackResponse;
-  try {
-    paystackResponse = await new Promise((resolve, reject) => {
-      const options = {
-        hostname: 'api.paystack.co',
-        port: 443,
-        path: `/transaction/verify/${encodeURIComponent(reference)}`,
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${paystackSecretKey}`,
-          'Content-Type': 'application/json',
-        },
-      };
+  // ── TEST / DEMO MODE FOR ₦0 TESTING ────────────────────────────────────────
+  // Set IS_TEST_MODE = true to bypass Paystack live API check and allow ₦0 test activation.
+  // Set IS_TEST_MODE = false for production live Paystack verification.
+  const IS_TEST_MODE = true;
 
-      const req = https.request(options, (res) => {
-        let body = '';
-        res.on('data', (chunk) => { body += chunk; });
-        res.on('end', () => {
-          try {
-            resolve(JSON.parse(body));
-          } catch (e) {
-            reject(new Error('Failed to parse Paystack response'));
-          }
+  if (!IS_TEST_MODE) {
+    // Call Paystack verify endpoint
+    let paystackResponse;
+    try {
+      paystackResponse = await new Promise((resolve, reject) => {
+        const options = {
+          hostname: 'api.paystack.co',
+          port: 443,
+          path: `/transaction/verify/${encodeURIComponent(reference)}`,
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${paystackSecretKey}`,
+            'Content-Type': 'application/json',
+          },
+        };
+
+        const req = https.request(options, (res) => {
+          let body = '';
+          res.on('data', (chunk) => { body += chunk; });
+          res.on('end', () => {
+            try {
+              resolve(JSON.parse(body));
+            } catch (e) {
+              reject(new Error('Failed to parse Paystack response'));
+            }
+          });
         });
+        req.on('error', reject);
+        req.end();
       });
-      req.on('error', reject);
-      req.end();
-    });
-  } catch (err) {
-    console.error('[PAYSTACK] Verification HTTP error:', err);
-    throw new functions.https.HttpsError('internal', 'Failed to reach Paystack servers.');
-  }
+    } catch (err) {
+      console.error('[PAYSTACK] Verification HTTP error:', err);
+      throw new functions.https.HttpsError('internal', 'Failed to reach Paystack servers.');
+    }
 
-  const tx = paystackResponse && paystackResponse.data;
-  if (!paystackResponse.status || !tx) {
-    console.error('[PAYSTACK] Bad response:', JSON.stringify(paystackResponse));
-    throw new functions.https.HttpsError('internal', 'Paystack verification failed.');
-  }
+    const tx = paystackResponse && paystackResponse.data;
+    if (!paystackResponse.status || !tx) {
+      console.error('[PAYSTACK] Bad response:', JSON.stringify(paystackResponse));
+      throw new functions.https.HttpsError('internal', 'Paystack verification failed.');
+    }
 
-  if (tx.status !== 'success') {
-    throw new functions.https.HttpsError('failed-precondition', `Payment not successful. Status: ${tx.status}`);
-  }
+    if (tx.status !== 'success') {
+      throw new functions.https.HttpsError('failed-precondition', `Payment not successful. Status: ${tx.status}`);
+    }
 
-  // ₦1,999 = 199900 kobo
-  const expectedAmount = 199900;
-  if (tx.amount < expectedAmount) {
-    console.error(`[PAYSTACK] Amount mismatch: got ${tx.amount}, expected ${expectedAmount}`);
-    throw new functions.https.HttpsError('failed-precondition', 'Payment amount does not match subscription price.');
+    // ₦1,999 = 199900 kobo
+    const expectedAmount = 199900;
+    if (tx.amount < expectedAmount) {
+      console.error(`[PAYSTACK] Amount mismatch: got ${tx.amount}, expected ${expectedAmount}`);
+      throw new functions.https.HttpsError('failed-precondition', 'Payment amount does not match subscription price.');
+    }
+  } else {
+    console.log(`[PAYSTACK TEST MODE] Bypassing Paystack charge for ₦0 testing. Reference: ${reference}`);
   }
 
   // Check reference not already used (idempotency)
@@ -1182,13 +1191,14 @@ exports.verifyPaystackPayment = functions.region('europe-west3').https.onCall(as
   batch.set(txRef, {
     uid,
     reference,
-    amount: tx.amount,
-    currency: tx.currency,
-    status: tx.status,
-    paid_at: tx.paid_at,
+    amount: IS_TEST_MODE ? 0 : tx.amount,
+    currency: IS_TEST_MODE ? 'NGN' : tx.currency,
+    status: IS_TEST_MODE ? 'success_test_mode' : tx.status,
+    paid_at: IS_TEST_MODE ? new Date().toISOString() : (tx ? tx.paid_at : new Date().toISOString()),
     verified_at: admin.firestore.FieldValue.serverTimestamp(),
     plan: 'SafeTrace Plus',
     expires_at: admin.firestore.Timestamp.fromDate(expiresAt),
+    is_test_mode: IS_TEST_MODE,
   });
 
   await batch.commit();

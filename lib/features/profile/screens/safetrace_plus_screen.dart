@@ -18,6 +18,11 @@ class SafeTracePlusScreen extends ConsumerStatefulWidget {
 }
 
 class _SafeTracePlusScreenState extends ConsumerState<SafeTracePlusScreen> {
+  // ── TEST MODE FOR ₦0 TESTING ────────────────────────────────────────────────
+  // Set isTestMode = true to test subscription activation for ₦0 without actual bank transfers.
+  // Set isTestMode = false when going live with actual ₦1,999 Paystack transfers.
+  static const bool isTestMode = true;
+
   bool _isProcessing = false;
   String? _activeRef;
 
@@ -275,14 +280,14 @@ class _SafeTracePlusScreenState extends ConsumerState<SafeTracePlusScreen> {
                   ),
                   const SizedBox(height: 8),
                   RichText(
-                    text: const TextSpan(
-                      style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
+                    text: TextSpan(
+                      style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
                       children: [
                         TextSpan(
-                          text: '₦1,999',
-                          style: TextStyle(color: Color(0xFFEF4444)),
+                          text: isTestMode ? '₦0 (Test Mode)' : '₦1,999',
+                          style: const TextStyle(color: Color(0xFFEF4444)),
                         ),
-                        TextSpan(
+                        const TextSpan(
                           text: ' / month',
                           style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 14, fontWeight: FontWeight.w500),
                         ),
@@ -318,17 +323,17 @@ class _SafeTracePlusScreenState extends ConsumerState<SafeTracePlusScreen> {
                               child: const Icon(Icons.account_balance_rounded, color: Color(0xFFEF4444), size: 20),
                             ),
                             const SizedBox(width: 12),
-                            const Expanded(
+                            Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    'Bank Transfer Payment',
-                                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 15),
+                                    isTestMode ? 'Bank Transfer Payment (Test Mode)' : 'Bank Transfer Payment',
+                                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 15),
                                   ),
                                   Text(
-                                    'Pay via bank app, USSD or transfer',
-                                    style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 12),
+                                    isTestMode ? 'Testing Mode Enabled — Activate for ₦0' : 'Pay via bank app, USSD or transfer',
+                                    style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 12),
                                   ),
                                 ],
                               ),
@@ -342,9 +347,9 @@ class _SafeTracePlusScreenState extends ConsumerState<SafeTracePlusScreen> {
                         // Amount to pay
                         _buildTransferDetailRow(
                           label: 'Exact Amount to Pay',
-                          value: '₦1,999',
+                          value: isTestMode ? '₦0 (Test Mode)' : '₦1,999',
                           valueColor: const Color(0xFF4ADE80),
-                          onCopy: () => _copyToClipboard('1999', 'Amount'),
+                          onCopy: () => _copyToClipboard(isTestMode ? '0' : '1999', 'Amount'),
                         ),
                         const SizedBox(height: 12),
 
@@ -364,19 +369,23 @@ class _SafeTracePlusScreenState extends ConsumerState<SafeTracePlusScreen> {
                             color: const Color(0xFF12141C),
                             borderRadius: BorderRadius.circular(10),
                           ),
-                          child: const Column(
+                          child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'HOW TO PAY VIA BANK TRANSFER:',
-                                style: TextStyle(color: Color(0xFF6B7280), fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 0.5),
+                                isTestMode ? '🧪 TEST MODE ACTIVATION (₦0):' : 'HOW TO PAY VIA BANK TRANSFER:',
+                                style: const TextStyle(color: Color(0xFF6B7280), fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 0.5),
                               ),
-                              SizedBox(height: 8),
+                              const SizedBox(height: 8),
                               Text(
-                                '1. Open your bank app or dial USSD.\n'
-                                '2. Tap "Open Paystack Transfer" below or transfer ₦1,999 using reference above.\n'
-                                '3. After completing transfer, tap "I Have Paid" to verify instantly.',
-                                style: TextStyle(color: Color(0xFFD1D5DB), fontSize: 12, height: 1.5),
+                                isTestMode
+                                    ? '1. No real money transfer required during testing.\n'
+                                      '2. Tap "Activate Free Test Subscription (₦0)" below.\n'
+                                      '3. SafeTrace Plus will activate immediately for testing.'
+                                    : '1. Open your bank app or dial USSD.\n'
+                                      '2. Tap "Open Paystack Transfer" below or transfer ₦1,999 using reference above.\n'
+                                      '3. After completing transfer, tap "I Have Paid" to verify instantly.',
+                                style: const TextStyle(color: Color(0xFFD1D5DB), fontSize: 12, height: 1.5),
                               ),
                             ],
                           ),
@@ -421,7 +430,7 @@ class _SafeTracePlusScreenState extends ConsumerState<SafeTracePlusScreen> {
                 ),
                 child: Column(
                   children: [
-                    // Primary "I Have Paid" Button
+                    // Primary "I Have Paid" / "Activate Free Test" Button
                     SizedBox(
                       width: double.infinity,
                       height: 52,
@@ -441,14 +450,16 @@ class _SafeTracePlusScreenState extends ConsumerState<SafeTracePlusScreen> {
                                   color: Colors.white,
                                 ),
                               )
-                            : const Row(
+                            : Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  Icon(Icons.check_circle_rounded, color: Colors.white, size: 18),
-                                  SizedBox(width: 10),
+                                  const Icon(Icons.check_circle_rounded, color: Colors.white, size: 18),
+                                  const SizedBox(width: 10),
                                   Text(
-                                    'I Have Paid — Verify Payment',
-                                    style: TextStyle(
+                                    isTestMode
+                                        ? 'Activate Free Test Subscription (₦0)'
+                                        : 'I Have Paid — Verify Payment',
+                                    style: const TextStyle(
                                       color: Colors.white,
                                       fontWeight: FontWeight.w900,
                                       fontSize: 15,
