@@ -19,6 +19,8 @@ import '../../../core/services/inactivity_service.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../profile/screens/profile_detail_screens.dart';
 import '../../route/screens/route_intel_screen.dart';
+import '../../../shared/widgets/upgrade_bottom_sheet.dart';
+import '../../../core/providers/subscription_provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/services.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -788,6 +790,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
                         Expanded(
                           child: GestureDetector(
                             onTap: () async {
+                              final subInfo = ref.read(currentSubscriptionProvider);
+                              final remaining = subInfo.locationLogsRemainingThisMonth;
+                              if (remaining != null && remaining <= 0) {
+                                UpgradeBottomSheet.show(
+                                  context,
+                                  message: 'Unlock unlimited location logging with SafeTrace Plus.',
+                                );
+                                return;
+                              }
+
                               final hasPermission = await LocationService.checkAndRequestPermissions(context);
                               if (hasPermission && mounted) {
                                 Navigator.of(context).push(
@@ -831,12 +843,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
                                     ),
                                   ),
                                   const SizedBox(height: 2),
-                                  const Text(
-                                    "Add a safety note",
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: Color(0xFF6B7280),
-                                    ),
+                                  Builder(
+                                    builder: (context) {
+                                      final subInfo = ref.watch(currentSubscriptionProvider);
+                                      final remaining = subInfo.locationLogsRemainingThisMonth;
+                                      if (remaining != null && remaining >= 1 && remaining <= 3) {
+                                        return Text(
+                                          "$remaining logs remaining this month",
+                                          style: const TextStyle(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                            color: Color(0xFFD97706),
+                                          ),
+                                        );
+                                      }
+                                      return const Text(
+                                        "Add a safety note",
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: Color(0xFF6B7280),
+                                        ),
+                                      );
+                                    },
                                   ),
                                 ],
                               ),
@@ -938,8 +966,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
                                       color: isDark ? Colors.white : const Color(0xFF111827),
                                     ),
                                   ),
-                                  SizedBox(height: 2),
-                                  Text(
+                                  const SizedBox(height: 2),
+                                  const Text(
                                     "AI-Augmented route intelligence",
                                     style: TextStyle(
                                       fontSize: 12,
@@ -948,6 +976,37 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
                                   ),
                                 ],
                               ),
+                            ),
+                            Builder(
+                              builder: (context) {
+                                final subInfo = ref.watch(currentSubscriptionProvider);
+                                if (subInfo.isFree) {
+                                  return Container(
+                                    margin: const EdgeInsets.only(right: 6),
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF59E0B).withOpacity(0.15),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: const [
+                                        Icon(Icons.star_rounded, color: Color(0xFFF59E0B), size: 14),
+                                        SizedBox(width: 2),
+                                        Text(
+                                          'PLUS',
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w900,
+                                            color: Color(0xFFF59E0B),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                }
+                                return const SizedBox.shrink();
+                              },
                             ),
                             const Icon(Icons.chevron_right, color: Color(0xFF9CA3AF)),
                           ],
@@ -991,21 +1050,57 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
                           ),
                         ),
                       )
-                    else
-                      ...homeState.logs.map((log) {
-                        final rawLat = double.tryParse((log['lat'] ?? log['latitude'] ?? '0.0').toString()) ?? 0.0;
-                        final rawLng = double.tryParse((log['lng'] ?? log['longitude'] ?? '0.0').toString()) ?? 0.0;
-                        return _buildActivityItem(
-                          log['id'] ?? '',
-                          log['location'] ?? '',
-                          log['note'] ?? '',
-                          log['timestamp'] ?? '',
-                          source: (log['source'] ?? '').toString(),
-                          tagLabel: (log['tag_label'] ?? '').toString(),
-                          lat: rawLat,
-                          lng: rawLng,
-                        );
-                      }).toList(),
+                    else ...[
+                      Builder(
+                        builder: (context) {
+                          final subInfo = ref.watch(currentSubscriptionProvider);
+                          final limit = subInfo.recentActivityLimit;
+                          final displayedLogs = homeState.logs.take(limit).toList();
+
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              ...displayedLogs.map((log) {
+                                final rawLat = double.tryParse((log['lat'] ?? log['latitude'] ?? '0.0').toString()) ?? 0.0;
+                                final rawLng = double.tryParse((log['lng'] ?? log['longitude'] ?? '0.0').toString()) ?? 0.0;
+                                return _buildActivityItem(
+                                  log['id'] ?? '',
+                                  log['location'] ?? '',
+                                  log['note'] ?? '',
+                                  log['timestamp'] ?? '',
+                                  source: (log['source'] ?? '').toString(),
+                                  tagLabel: (log['tag_label'] ?? '').toString(),
+                                  lat: rawLat,
+                                  lng: rawLng,
+                                );
+                              }).toList(),
+                              if (subInfo.isFree && homeState.logs.length > 5) ...[
+                                const SizedBox(height: 8),
+                                GestureDetector(
+                                  onTap: () {
+                                    UpgradeBottomSheet.show(
+                                      context,
+                                      message: 'Upgrade to SafeTrace Plus to view your full activity history.',
+                                    );
+                                  },
+                                  child: const Padding(
+                                    padding: EdgeInsets.symmetric(vertical: 8.0),
+                                    child: Text(
+                                      'See more in SafeTrace Plus →',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFF4F46E5),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          );
+                        },
+                      ),
+                    ],
                     const SizedBox(height: 24),
                   ],
                 ),

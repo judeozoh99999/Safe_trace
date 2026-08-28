@@ -6,3 +6,9 @@ import '../services/subscription_service.dart';
 final subscriptionProvider = StreamProvider<SubscriptionInfo>((ref) {
   return SubscriptionService.subscriptionStream();
 });
+
+/// Synchronous subscription info provider (returns current value or SubscriptionInfo.free).
+final currentSubscriptionProvider = Provider<SubscriptionInfo>((ref) {
+  final asyncSub = ref.watch(subscriptionProvider);
+  return asyncSub.valueOrNull ?? SubscriptionInfo.free;
+});

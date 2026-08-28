@@ -14,6 +14,7 @@ class SubscriptionInfo {
   final bool autoRenew;
   final String? paystackReference;
   final int? amount;
+  final int locationLogsThisMonth;
 
   const SubscriptionInfo({
     required this.tier,
@@ -27,9 +28,36 @@ class SubscriptionInfo {
     this.autoRenew = false,
     this.paystackReference,
     this.amount,
+    this.locationLogsThisMonth = 0,
   });
 
-  bool get isPlus => tier == 'plus' && isActive && (expiresAt == null || expiresAt!.isAfter(DateTime.now()));
+  /// Section 4: isPlus returns true ONLY when subscription_active is boolean true
+  /// AND subscription_tier is string plus AND subscription_expires is in the future.
+  bool get isPlus =>
+      tier == 'plus' &&
+      isActive &&
+      expiresAt != null &&
+      expiresAt!.isAfter(DateTime.now());
+
+  /// Section 4: isFree returns true when isPlus is false.
+  bool get isFree => !isPlus;
+
+  /// Section 4: locationLogsRemainingThisMonth returns (10 - location_logs_this_month) for free users.
+  /// For Plus users returns null (unlimited).
+  int? get locationLogsRemainingThisMonth {
+    if (isPlus) return null; // Unlimited for Plus users
+    final remaining = 10 - locationLogsThisMonth;
+    return remaining < 0 ? 0 : remaining;
+  }
+
+  /// Section 4: trustedContactsLimit returns 3 for free users, 5 for Plus users.
+  int get trustedContactsLimit => isPlus ? 5 : 3;
+
+  /// Section 4: locationHistoryDays returns 7 for free users, 90 for Plus users.
+  int get locationHistoryDays => isPlus ? 90 : 7;
+
+  /// Section 4: recentActivityLimit returns 5 for free users, 100 for Plus users.
+  int get recentActivityLimit => isPlus ? 100 : 5;
 
   static const free = SubscriptionInfo(tier: 'free', isActive: false);
 
@@ -132,7 +160,11 @@ class SubscriptionService {
 
     final autoRenew = data['auto_renew'] == true;
 
-    final isActuallyActive = tier == 'plus' && active && (expiresAt == null || expiresAt.isAfter(DateTime.now()));
+    final isActuallyActive = tier == 'plus' && active && (expiresAt != null && expiresAt.isAfter(DateTime.now()));
+
+    final logsThisMonth = data['location_logs_this_month'] is num
+        ? (data['location_logs_this_month'] as num).toInt()
+        : 0;
 
     return SubscriptionInfo(
       tier: isActuallyActive ? 'plus' : 'free',
@@ -148,6 +180,7 @@ class SubscriptionService {
       amount: data['subscription_amount'] is int
           ? data['subscription_amount'] as int
           : int.tryParse(data['subscription_amount']?.toString() ?? ''),
+      locationLogsThisMonth: logsThisMonth,
     );
   }
 

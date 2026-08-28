@@ -20,6 +20,8 @@ import '../../community/providers/community_provider.dart';
 import '../../community/screens/community_feed_screen.dart';
 import '../services/route_service.dart';
 import '../../notes/screens/log_notes_screen.dart';
+import '../../../shared/widgets/upgrade_bottom_sheet.dart';
+import '../../../core/providers/subscription_provider.dart';
 import '../../location/services/location_service.dart';
 
 // ─── Providers ─────────────────────────────────────────────────────────────
@@ -849,6 +851,14 @@ class _RouteIntelScreenState extends ConsumerState<RouteIntelScreen>
   }
 
   Future<void> _toggleFavourite() async {
+    final subInfo = ref.read(currentSubscriptionProvider);
+    if (subInfo.isFree && !_selectedIsFavourite) {
+      UpgradeBottomSheet.show(
+        context,
+        message: 'Upgrade to SafeTrace Plus to save favorite locations.',
+      );
+      return;
+    }
     HapticFeedback.heavyImpact();
     final user = FirebaseAuth.instance.currentUser;
     if (user == null || _selectedLatLng == null) return;
@@ -1607,6 +1617,14 @@ class _RouteIntelScreenState extends ConsumerState<RouteIntelScreen>
   // ─── Share Location ───────────────────────────────────────────────────────
 
   void _shareLocation() {
+    final subInfo = ref.read(currentSubscriptionProvider);
+    if (subInfo.isFree) {
+      UpgradeBottomSheet.show(
+        context,
+        message: 'Upgrade to SafeTrace Plus to share live location with your contacts.',
+      );
+      return;
+    }
     final user = ref.read(firebaseAuthProvider).currentUser;
     if (user != null) {
       Share.share(
@@ -3132,27 +3150,48 @@ class _HistorySheetState extends ConsumerState<_HistorySheet> {
                       ),
               ),
 
-              // Footer notice
-              Container(
-                margin: const EdgeInsets.all(16),
-                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEFF6FF),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFDBEAFE)),
-                ),
-                child: Row(
-                  children: const [
-                    Icon(Icons.access_time_rounded, color: Color(0xFF2563EB), size: 15),
-                    SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        "Location logs are automatically deleted after 7 days.",
-                        style: TextStyle(color: Color(0xFF1E3A8A), fontSize: 12, fontWeight: FontWeight.w600),
+              // Section 5: Lock card at bottom of history list for Free users
+              Builder(
+                builder: (context) {
+                  final subInfo = ref.watch(currentSubscriptionProvider);
+                  if (subInfo.isFree) {
+                    return GestureDetector(
+                      onTap: () {
+                        UpgradeBottomSheet.show(
+                          context,
+                          message: 'Upgrade to SafeTrace Plus to see up to 90 days of location history.',
+                        );
+                      },
+                      child: Container(
+                        margin: const EdgeInsets.all(16),
+                        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFFBEB),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFF59E0B)),
+                        ),
+                        child: Row(
+                          children: const [
+                            Icon(Icons.lock_rounded, color: Color(0xFFD97706), size: 20),
+                            SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                'Upgrade to SafeTrace Plus to see up to 90 days of history.',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF92400E),
+                                ),
+                              ),
+                            ),
+                            Icon(Icons.chevron_right, color: Color(0xFFD97706), size: 18),
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
-                ),
+                    );
+                  }
+                  return const SizedBox.shrink();
+                },
               ),
             ],
           ),

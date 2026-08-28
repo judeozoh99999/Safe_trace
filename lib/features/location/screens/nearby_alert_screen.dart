@@ -7,6 +7,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'add_connection_screen.dart';
 import '../providers/nearby_alert_provider.dart';
+import '../../../shared/widgets/upgrade_bottom_sheet.dart';
+import '../../../core/providers/subscription_provider.dart';
 import '../../../core/theme/app_colors.dart';
 
 class NearbyAlertScreen extends ConsumerStatefulWidget {
@@ -843,6 +845,7 @@ class _NearbyAlertScreenState extends ConsumerState<NearbyAlertScreen> {
   }
 
   Widget _buildAddConnectionButton(int totalConnections, bool isDark) {
+    final subInfo = ref.watch(currentSubscriptionProvider);
     final bool isLimitReached = totalConnections >= 5;
 
     Widget btnContent = SizedBox(
@@ -851,21 +854,32 @@ class _NearbyAlertScreenState extends ConsumerState<NearbyAlertScreen> {
       child: ElevatedButton(
         style: ElevatedButton.styleFrom(
           backgroundColor: isLimitReached ? const Color(0xFF9CA3AF) : const Color(0xFFEB444E),
-          disabledBackgroundColor: const Color(0xFF9CA3AF),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           elevation: 0,
         ),
-        onPressed: isLimitReached
-            ? null
-            : () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const AddConnectionScreen()),
-                );
-              },
+        onPressed: () {
+          if (subInfo.isFree) {
+            UpgradeBottomSheet.show(
+              context,
+              message: 'Upgrade to SafeTrace Plus to initiate nearby alert connections.',
+            );
+            return;
+          }
+          if (isLimitReached) return;
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const AddConnectionScreen()),
+          );
+        },
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(isLimitReached ? Icons.block_rounded : Icons.add, color: Colors.white, size: 20),
+            Icon(
+              subInfo.isFree
+                  ? Icons.lock_rounded
+                  : (isLimitReached ? Icons.block_rounded : Icons.add),
+              color: Colors.white,
+              size: 20,
+            ),
             const SizedBox(width: 8),
             Text(
               isLimitReached ? "Connection limit reached" : "Add Connection",

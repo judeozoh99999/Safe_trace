@@ -167,7 +167,7 @@ class ProfileScreen extends ConsumerWidget {
                         final String statDisplay = trustedCountAsync.when(
                           data: (total) => "$total",
                           loading: () => "-",
-                          error: (err, stack) => "?",
+                          error: (err, stack) => "0",
                         );
 
                         final String subtitleText = trustedCountAsync.when(
@@ -499,12 +499,11 @@ class _SubscriptionButton extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final subAsync = ref.watch(subscriptionProvider);
-    final sub = subAsync.valueOrNull;
-    final isPlus = sub?.isPlus ?? false;
+    final sub = ref.watch(currentSubscriptionProvider);
+    final isPlus = sub.isPlus;
 
     if (isPlus) {
-      final formattedExpiry = sub?.formattedExpiry ?? 'N/A';
+      final formattedExpiry = sub.formattedExpiry;
 
       return Container(
         width: double.infinity,

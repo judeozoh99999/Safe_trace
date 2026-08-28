@@ -168,14 +168,19 @@ class _PanicAlertScreenState extends ConsumerState<PanicAlertScreen> with Ticker
       hasSmsPermission = await Permission.sms.isGranted;
     }
 
-    if (trustedPhones.isNotEmpty) {
+    // Section 5: Limit SMS to trustedContactsLimit (3 for free, 5 for Plus)
+    final subInfo = ref.read(currentSubscriptionProvider);
+    final allowedLimit = subInfo.trustedContactsLimit;
+    final phonesToSend = trustedPhones.take(allowedLimit).toList();
+
+    if (phonesToSend.isNotEmpty) {
       setState(() {
         _isSendingSms = true;
       });
 
       if (hasSmsPermission) {
         final smsResults = await SmsService.sendPanicSms(
-          phoneNumbers: trustedPhones,
+          phoneNumbers: phonesToSend,
           message: message,
         );
         setState(() {

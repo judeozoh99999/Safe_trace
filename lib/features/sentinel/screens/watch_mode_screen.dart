@@ -8,6 +8,8 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/services/speech_sentinel_service.dart';
 import '../../../shared/widgets/custom_buttons.dart';
 import '../../../shared/widgets/safetrace_app_bar.dart';
+import '../../../core/providers/subscription_provider.dart';
+import '../../profile/screens/plan_selection_screen.dart';
 import '../providers/sentinel_provider.dart';
 
 class WatchModeScreen extends ConsumerStatefulWidget {
@@ -72,15 +74,17 @@ class _WatchModeScreenState extends ConsumerState<WatchModeScreen> with SingleTi
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Row(
           children: [
-            Icon(Icons.timer_off_outlined, color: Colors.orange),
+            Icon(Icons.timer_off_outlined, color: Color(0xFFEF4444)),
             SizedBox(width: 8),
-            Text("Session Limit Reached"),
+            Text("Session Ended", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
           ],
         ),
         content: const Text(
-          "Basic Plan includes 5 minutes of Watch Mode per day. Upgrade to SafeTrace Pro for unlimited Watch Mode sessions and 5-contact alert dispatch.",
+          "Your 3-minute session has ended. Upgrade to SafeTrace Plus for unlimited sessions with full speech threat detection.",
+          style: TextStyle(fontSize: 14, height: 1.35),
         ),
         actions: [
           TextButton(
@@ -88,16 +92,21 @@ class _WatchModeScreenState extends ConsumerState<WatchModeScreen> with SingleTi
               ref.read(sentinelProvider.notifier).dismissUpgradeModal();
               Navigator.pop(context);
             },
-            child: const Text("Later"),
+            child: const Text("Close", style: TextStyle(color: Colors.grey)),
           ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFEF4444),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
             onPressed: () {
               ref.read(sentinelProvider.notifier).dismissUpgradeModal();
               Navigator.pop(context);
-              context.push('/safetrace-plus');
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const PlanSelectionScreen()),
+              );
             },
-            child: const Text("Upgrade to Pro", style: TextStyle(color: Colors.white)),
+            child: const Text("Upgrade Now", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -243,6 +252,25 @@ class _WatchModeScreenState extends ConsumerState<WatchModeScreen> with SingleTi
                   color: sentinelState.isActive ? AppColors.success : const Color(0xFF6B7280),
                   letterSpacing: 1.0,
                 ),
+              ),
+              Builder(
+                builder: (context) {
+                  final subInfo = ref.watch(currentSubscriptionProvider);
+                  if (subInfo.isFree && !sentinelState.isActive) {
+                    return const Padding(
+                      padding: EdgeInsets.only(top: 6.0),
+                      child: Text(
+                        '3-minute sessions — Upgrade for unlimited',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontStyle: FontStyle.italic,
+                          color: Color(0xFF9CA3AF),
+                        ),
+                      ),
+                    );
+                  }
+                  return const SizedBox.shrink();
+                },
               ),
               const SizedBox(height: 12),
 

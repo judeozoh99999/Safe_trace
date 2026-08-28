@@ -107,11 +107,11 @@ class SentinelNotifier extends StateNotifier<SentinelState> {
       return;
     }
 
-    // 2. Check Subscription Gating (Section 7)
+    // 2. Check Subscription Gating (Section 5 & 7)
     final info = await SubscriptionService.getSubscriptionInfo();
     int? remainingSecs;
     if (!info.isPlus) {
-      remainingSecs = 300; // 5 minutes limit per session for Free tier; Unlimited for SafeTrace Plus
+      remainingSecs = 180; // 3 minutes limit per session for Free tier; Unlimited for SafeTrace Plus
     }
 
     state = state.copyWith(
@@ -122,7 +122,7 @@ class SentinelNotifier extends StateNotifier<SentinelState> {
       sessionTimeRemainingSeconds: remainingSecs,
     );
 
-    // 3. Start Session Timer for Basic Users
+    // 3. Start Session Timer for Free Users
     if (remainingSecs != null) {
       _sessionTimer?.cancel();
       _sessionTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
@@ -139,16 +139,20 @@ class SentinelNotifier extends StateNotifier<SentinelState> {
     }
 
     // 4. Initialize Services
-    _speechService = SpeechSentinelService();
     _yamnetService = AudioSentinelService();
+    await _yamnetService!.init();
+    _yamnetService!.startParallelClassification();
 
-    _speechService!.setSensitivity(state.sensitivityThreshold);
-    _speechService!.setLanguageMode(state.languageMode);
-
-    // Bind Live Transcription Updates
-    _speechService!.onLiveTranscriptionChanged = (text) {
-      state = state.copyWith(liveTranscription: text);
-    };
+    // Section 5 Gate: Only start Speech-to-Text streaming for Plus users
+    if (info.isPlus) {
+      _speechService = SpeechSentinelService();
+      _speechService!.setSensitivity(state.sensitivityThreshold);
+      _speechService!.setLanguageMode(state.languageMode);
+      _speechService!.onLiveTranscriptionChanged = (text) {
+        state = state.copyWith(liveTranscription: text);
+      };
+      await _speechService!.startListening();
+    }
 
     // Bind Threat Detection & Alert Service
     AlertTriggerService().onLogEvent = (event) {
@@ -164,11 +168,6 @@ class SentinelNotifier extends StateNotifier<SentinelState> {
         state = state.copyWith(countdownSeconds: secs);
       }
     });
-
-    await _yamnetService!.init();
-    _yamnetService!.startParallelClassification();
-
-    await _speechService!.startListening();
   }
 
   void setSensitivity(double threshold) {

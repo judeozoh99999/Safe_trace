@@ -5,6 +5,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../shared/widgets/custom_buttons.dart';
 import '../../../shared/widgets/safetrace_app_bar.dart';
+import '../../../shared/widgets/upgrade_bottom_sheet.dart';
+import '../../../core/providers/subscription_provider.dart';
+import '../providers/trusted_contacts_provider.dart';
 import '../../auth/providers/auth_provider.dart';
 
 class AddContactRequestScreen extends ConsumerStatefulWidget {
@@ -66,9 +69,21 @@ class _AddContactRequestScreenState extends ConsumerState<AddContactRequestScree
       return;
     }
 
-    final normalizedPhone = _normalizePhone(rawPhone);
     final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser == null) return;
+
+    // Section 5 Gate: Trusted Circle contact limit (3 for free, 5 for Plus)
+    final subInfo = ref.read(currentSubscriptionProvider);
+    if (subInfo.isFree) {
+      final currentContactsCount = ref.read(trustedContactsCountProvider).valueOrNull ?? 0;
+      if (currentContactsCount >= subInfo.trustedContactsLimit) {
+        UpgradeBottomSheet.show(
+          context,
+          message: 'Upgrade to SafeTrace Plus to add up to 5 trusted contacts.',
+        );
+        return;
+      }
+    }
 
     setState(() {
       _isLoading = true;

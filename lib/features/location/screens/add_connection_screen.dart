@@ -7,6 +7,8 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:share_plus/share_plus.dart';
 import '../providers/nearby_alert_provider.dart';
+import '../../../shared/widgets/upgrade_bottom_sheet.dart';
+import '../../../core/providers/subscription_provider.dart';
 import '../../../core/theme/app_colors.dart';
 
 class AddConnectionScreen extends ConsumerStatefulWidget {
@@ -35,6 +37,15 @@ class _AddConnectionScreenState extends ConsumerState<AddConnectionScreen> {
   }
 
   void _sendRequest() async {
+    final subInfo = ref.read(currentSubscriptionProvider);
+    if (subInfo.isFree) {
+      UpgradeBottomSheet.show(
+        context,
+        message: 'Upgrade to SafeTrace Plus to initiate nearby alert connections.',
+      );
+      return;
+    }
+
     final targetId = _idController.text.trim().toUpperCase();
     setState(() {
       _inlineError = null;

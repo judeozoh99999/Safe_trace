@@ -15,6 +15,8 @@ import '../../location/services/location_service.dart';
 import '../../location/providers/home_provider.dart';
 import '../providers/community_provider.dart';
 import '../widgets/ai_safety_summary_card.dart';
+import '../../../shared/widgets/upgrade_bottom_sheet.dart';
+import '../../../core/providers/subscription_provider.dart';
 import 'select_community_location_screen.dart';
 import '../../home_shell.dart';
 
@@ -195,13 +197,45 @@ class _CommunityFeedScreenState extends ConsumerState<CommunityFeedScreen> {
           ),
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.white,
-        shape: const CircleBorder(),
-        elevation: 6,
-        onPressed: () => _showAddReportSheet(context, ref, notifier, isDark),
-        child: const Icon(Icons.add_alert_rounded, size: 28),
+      floatingActionButton: Builder(
+        builder: (context) {
+          final subInfo = ref.watch(currentSubscriptionProvider);
+          return FloatingActionButton(
+            backgroundColor: subInfo.isFree ? const Color(0xFF6B7280) : AppColors.primary,
+            foregroundColor: Colors.white,
+            shape: const CircleBorder(),
+            elevation: 6,
+            onPressed: () {
+              if (subInfo.isFree) {
+                UpgradeBottomSheet.show(
+                  context,
+                  message: 'Upgrade to SafeTrace Plus to post community safety alerts.',
+                );
+                return;
+              }
+              _showAddReportSheet(context, ref, notifier, isDark);
+            },
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                const Icon(Icons.add_alert_rounded, size: 26),
+                if (subInfo.isFree)
+                  Positioned(
+                    right: 0,
+                    bottom: 0,
+                    child: Container(
+                      padding: const EdgeInsets.all(2),
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFF59E0B),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.lock_rounded, size: 10, color: Colors.white),
+                    ),
+                  ),
+              ],
+            ),
+          );
+        },
       ),
     );
   }
