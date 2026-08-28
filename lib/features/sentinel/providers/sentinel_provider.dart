@@ -108,10 +108,10 @@ class SentinelNotifier extends StateNotifier<SentinelState> {
     }
 
     // 2. Check Subscription Gating (Section 7)
-    final tier = await SubscriptionService.getUserTier();
+    final info = await SubscriptionService.getSubscriptionInfo();
     int? remainingSecs;
-    if (tier == 'basic') {
-      remainingSecs = 300; // 5 minutes limit per session for Basic tier
+    if (!info.isPlus) {
+      remainingSecs = 300; // 5 minutes limit per session for Free tier; Unlimited for SafeTrace Plus
     }
 
     state = state.copyWith(

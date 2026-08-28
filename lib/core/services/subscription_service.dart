@@ -71,20 +71,21 @@ class SubscriptionService {
     }
   }
 
-  /// Stream that emits subscription info whenever the user doc changes.
+  /// Stream that emits subscription info whenever the auth user or user doc changes.
   static Stream<SubscriptionInfo> subscriptionStream() {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
-      return Stream.value(SubscriptionInfo.free);
-    }
+    return FirebaseAuth.instance.userChanges().asyncExpand((user) {
+      if (user == null) {
+        return Stream.value(SubscriptionInfo.free);
+      }
 
-    return FirebaseFirestore.instance
-        .collection(_collection)
-        .doc(user.uid)
-        .snapshots()
-        .map((snap) {
-      if (!snap.exists || snap.data() == null) return SubscriptionInfo.free;
-      return _parseDoc(snap.data()!);
+      return FirebaseFirestore.instance
+          .collection(_collection)
+          .doc(user.uid)
+          .snapshots()
+          .map((snap) {
+        if (!snap.exists || snap.data() == null) return SubscriptionInfo.free;
+        return _parseDoc(snap.data()!);
+      });
     }).handleError((e) {
       debugPrint('[SUBSCRIPTION] Stream error: $e');
       return SubscriptionInfo.free;
