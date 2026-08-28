@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'profile_detail_screens.dart';
 import 'safetrace_plus_screen.dart';
+import 'plan_selection_screen.dart';
+import 'manage_subscription_screen.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../location/providers/home_provider.dart';
 import '../../contacts/providers/trusted_contacts_provider.dart';
@@ -149,7 +151,7 @@ class ProfileScreen extends ConsumerWidget {
                           // SafeTrace Plus / Active button
                           _SubscriptionButton(
                             onPressed: () {
-                              Navigator.of(context).push(_createRoute(const SafeTracePlusScreen()));
+                              Navigator.of(context).push(_createRoute(const PlanSelectionScreen()));
                             },
                           ),
                         ],
@@ -498,33 +500,81 @@ class _SubscriptionButton extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final subAsync = ref.watch(subscriptionProvider);
-    final isPlus = subAsync.maybeWhen(
-      data: (sub) => sub.isPlus,
-      orElse: () => false,
-    );
+    final sub = subAsync.valueOrNull;
+    final isPlus = sub?.isPlus ?? false;
 
     if (isPlus) {
-      return SizedBox(
+      final formattedExpiry = sub?.formattedExpiry ?? 'N/A';
+
+      return Container(
         width: double.infinity,
-        height: 48,
-        child: ElevatedButton(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF16A34A),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-            elevation: 0,
-          ),
-          onPressed: onPressed,
-          child: const Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.check_circle_rounded, size: 16, color: Colors.white),
-              SizedBox(width: 8),
-              Text(
-                'SafeTrace Plus · Active',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 14),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1A1D27), // Dark navy
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFF2E3347)),
+        ),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF59E0B).withOpacity(0.15), // Gold badge icon
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.star_rounded, color: Color(0xFFF59E0B), size: 20),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'SafeTrace Plus Active',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 15,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Active until $formattedExpiry',
+                        style: const TextStyle(
+                          color: Color(0xFF9CA3AF),
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            SizedBox(
+              width: double.infinity,
+              height: 38,
+              child: OutlinedButton(
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: Colors.white),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                onPressed: () {
+                  Navigator.of(context).push(_createRoute(const ManageSubscriptionScreen()));
+                },
+                child: const Text(
+                  'Manage Subscription',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                  ),
+                ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       );
     }

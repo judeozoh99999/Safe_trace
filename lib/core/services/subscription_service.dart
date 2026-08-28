@@ -6,6 +6,12 @@ class SubscriptionInfo {
   final String tier; // 'free' or 'plus'
   final bool isActive;
   final DateTime? expiresAt;
+  final DateTime? startedAt;
+  final String? planId; // 'plus_monthly' or 'plus_annual'
+  final String? planName;
+  final bool cancellationRequested;
+  final DateTime? cancellationRequestedAt;
+  final bool autoRenew;
   final String? paystackReference;
   final int? amount;
 
@@ -13,6 +19,12 @@ class SubscriptionInfo {
     required this.tier,
     required this.isActive,
     this.expiresAt,
+    this.startedAt,
+    this.planId,
+    this.planName,
+    this.cancellationRequested = false,
+    this.cancellationRequestedAt,
+    this.autoRenew = false,
     this.paystackReference,
     this.amount,
   });
@@ -20,6 +32,24 @@ class SubscriptionInfo {
   bool get isPlus => tier == 'plus' && isActive && (expiresAt == null || expiresAt!.isAfter(DateTime.now()));
 
   static const free = SubscriptionInfo(tier: 'free', isActive: false);
+
+  String get formattedExpiry {
+    if (expiresAt == null) return 'N/A';
+    return formatDayMonthYear(expiresAt!);
+  }
+
+  String get formattedStart {
+    if (startedAt == null) return 'N/A';
+    return formatDayMonthYear(startedAt!);
+  }
+
+  static String formatDayMonthYear(DateTime dt) {
+    const months = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    return '${dt.day} ${months[dt.month - 1]} ${dt.year}';
+  }
 }
 
 class SubscriptionService {
@@ -66,10 +96,40 @@ class SubscriptionService {
     final active = data['subscription_active'] == true;
 
     DateTime? expiresAt;
-    final rawExpiry = data['subscription_expires_at'];
+    final rawExpiry = data['subscription_expires_at'] ?? data['subscription_expires'];
     if (rawExpiry is Timestamp) {
       expiresAt = rawExpiry.toDate();
+    } else if (rawExpiry is String) {
+      expiresAt = DateTime.tryParse(rawExpiry);
     }
+
+    DateTime? startedAt;
+    final rawStart = data['subscription_started_at'] ?? data['subscription_start'];
+    if (rawStart is Timestamp) {
+      startedAt = rawStart.toDate();
+    } else if (rawStart is String) {
+      startedAt = DateTime.tryParse(rawStart);
+    }
+
+    final rawPlan = data['subscription_plan']?.toString();
+    String? planName;
+    if (rawPlan == 'plus_annual' || rawPlan == 'SafeTrace Plus Annual') {
+      planName = 'SafeTrace Plus Annual';
+    } else if (rawPlan == 'plus_monthly' || rawPlan == 'SafeTrace Plus Monthly') {
+      planName = 'SafeTrace Plus Monthly';
+    } else if (rawPlan != null && rawPlan.isNotEmpty) {
+      planName = rawPlan;
+    }
+
+    final cancellationRequested = data['cancellation_requested'] == true || data['subscription_cancelled'] == true;
+
+    DateTime? cancellationRequestedAt;
+    final rawCancelAt = data['cancellation_requested_at'];
+    if (rawCancelAt is Timestamp) {
+      cancellationRequestedAt = rawCancelAt.toDate();
+    }
+
+    final autoRenew = data['auto_renew'] == true;
 
     final isActuallyActive = tier == 'plus' && active && (expiresAt == null || expiresAt.isAfter(DateTime.now()));
 
@@ -77,8 +137,16 @@ class SubscriptionService {
       tier: isActuallyActive ? 'plus' : 'free',
       isActive: isActuallyActive,
       expiresAt: expiresAt,
+      startedAt: startedAt,
+      planId: rawPlan,
+      planName: planName,
+      cancellationRequested: cancellationRequested,
+      cancellationRequestedAt: cancellationRequestedAt,
+      autoRenew: autoRenew,
       paystackReference: data['paystack_reference'],
-      amount: data['subscription_amount'],
+      amount: data['subscription_amount'] is int
+          ? data['subscription_amount'] as int
+          : int.tryParse(data['subscription_amount']?.toString() ?? ''),
     );
   }
 
