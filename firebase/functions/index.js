@@ -1167,9 +1167,13 @@ exports.verifyPaystackPayment = functions.region('europe-west3').https.onCall(as
     return { success: true, already_applied: true };
   }
 
-  // Compute subscription expiry (+30 days)
+  // Compute subscription expiry (+365 days for annual, +30 days for monthly)
+  const planId = (data && data.plan_id) || 'plus_monthly';
+  const isAnnual = planId === 'plus_annual';
   const now = new Date();
-  const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+  const daysToAdd = isAnnual ? 365 : 30;
+  const expiresAt = new Date(now.getTime() + daysToAdd * 24 * 60 * 60 * 1000);
+  const amountToRecord = (data && data.amount) || (isAnnual ? 20000 : 2000);
 
   const batch = db.batch();
 
@@ -1178,11 +1182,17 @@ exports.verifyPaystackPayment = functions.region('europe-west3').https.onCall(as
   batch.set(userRef, {
     subscription_tier: 'plus',
     subscription_active: true,
-    subscription_plan: 'SafeTrace Plus',
-    subscription_amount: 1999,
+    subscription_plan: planId,
+    subscription_amount: amountToRecord,
     subscription_currency: 'NGN',
+    subscription_start: admin.firestore.FieldValue.serverTimestamp(),
     subscription_started_at: admin.firestore.FieldValue.serverTimestamp(),
+    subscription_expires: admin.firestore.Timestamp.fromDate(expiresAt),
     subscription_expires_at: admin.firestore.Timestamp.fromDate(expiresAt),
+    auto_renew: false,
+    cancellation_requested: false,
+    cancellation_requested_at: null,
+    subscription_cancelled: false,
     paystack_reference: reference,
   }, { merge: true });
 
@@ -1191,19 +1201,29 @@ exports.verifyPaystackPayment = functions.region('europe-west3').https.onCall(as
   batch.set(txRef, {
     uid,
     reference,
-    amount: IS_TEST_MODE ? 0 : tx.amount,
-    currency: IS_TEST_MODE ? 'NGN' : tx.currency,
-    status: IS_TEST_MODE ? 'success_test_mode' : tx.status,
+    amount: IS_TEST_MODE ? 0 : (tx ? tx.amount : amountToRecord),
+    currency: IS_TEST_MODE ? 'NGN' : (tx ? tx.currency : 'NGN'),
+    status: IS_TEST_MODE ? 'success_test_mode' : (tx ? tx.status : 'success'),
     paid_at: IS_TEST_MODE ? new Date().toISOString() : (tx ? tx.paid_at : new Date().toISOString()),
     verified_at: admin.firestore.FieldValue.serverTimestamp(),
-    plan: 'SafeTrace Plus',
+    plan: planId,
     expires_at: admin.firestore.Timestamp.fromDate(expiresAt),
     is_test_mode: IS_TEST_MODE,
   });
 
+  // Write notification document using Admin SDK
+  const notifRef = userRef.collection('notifications').doc();
+  batch.set(notifRef, {
+    title: 'SafeTrace Plus Activated',
+    body: 'Your SafeTrace Plus subscription is now active. Enjoy unlimited access.',
+    notification_type: 'subscription_activated',
+    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+    created_at: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
   await batch.commit();
 
-  console.log(`[PAYSTACK] Subscription activated for uid=${uid}, ref=${reference}, expires=${expiresAt.toISOString()}`);
+  console.log(`[PAYSTACK] Subscription activated for uid=${uid}, plan=${planId}, ref=${reference}, expires=${expiresAt.toISOString()}`);
   return { success: true, expires_at: expiresAt.toISOString() };
 });
 
