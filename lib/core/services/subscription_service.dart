@@ -103,19 +103,31 @@ class SubscriptionService {
   static Stream<SubscriptionInfo> subscriptionStream() {
     return FirebaseAuth.instance.userChanges().asyncExpand((user) {
       if (user == null) {
+        debugPrint('[SUBSCRIPTION_STREAM] Auth user is null -> emitting free info');
         return Stream.value(SubscriptionInfo.free);
       }
 
+      debugPrint('[SUBSCRIPTION_STREAM] Listening to Firestore user doc: users/${user.uid}');
       return FirebaseFirestore.instance
           .collection(_collection)
           .doc(user.uid)
           .snapshots()
           .map((snap) {
-        if (!snap.exists || snap.data() == null) return SubscriptionInfo.free;
-        return _parseDoc(snap.data()!);
+        if (!snap.exists || snap.data() == null) {
+          debugPrint('[SUBSCRIPTION_STREAM] Snapshot received: Document does not exist');
+          return SubscriptionInfo.free;
+        }
+        final info = _parseDoc(snap.data()!);
+        debugPrint(
+          '[SUBSCRIPTION_STREAM] Snapshot received -> '
+          'subscription_active: ${snap.data()!['subscription_active']}, '
+          'subscription_tier: ${snap.data()!['subscription_tier']}, '
+          'isPlus: ${info.isPlus}, expiresAt: ${info.expiresAt}',
+        );
+        return info;
       });
     }).handleError((e) {
-      debugPrint('[SUBSCRIPTION] Stream error: $e');
+      debugPrint('[SUBSCRIPTION_STREAM] Stream error: $e');
       return SubscriptionInfo.free;
     });
   }

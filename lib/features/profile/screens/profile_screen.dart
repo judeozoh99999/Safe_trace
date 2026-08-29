@@ -501,6 +501,8 @@ class _SubscriptionButton extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final sub = ref.watch(currentSubscriptionProvider);
     final isPlus = sub.isPlus;
+    debugPrint('[PROFILE_SCREEN] _SubscriptionButton build -> isPlus: $isPlus, tier: ${sub.tier}, isActive: ${sub.isActive}, expiresAt: ${sub.expiresAt}');
+    debugPrint('[PROFILE_SCREEN] Rendering widget: ${isPlus ? "SafeTrace Plus Active Card" : "Get SafeTrace Plus Pulsing Button"}');
 
     if (isPlus) {
       final formattedExpiry = sub.formattedExpiry;

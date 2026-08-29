@@ -44,6 +44,7 @@ class _TransferPaymentScreenState extends State<TransferPaymentScreen> {
 
   Future<void> _handleIHavePaid() async {
     final user = FirebaseAuth.instance.currentUser;
+    debugPrint('[TEST_MODE] Current Auth User UID: ${user?.uid}');
     if (user == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please sign in to complete subscription.')),
@@ -60,54 +61,61 @@ class _TransferPaymentScreenState extends State<TransferPaymentScreen> {
         final expiresAt = DateTime.now().add(Duration(days: isAnnual ? 365 : 30));
         final refStr = 'STR_TEST_${DateTime.now().millisecondsSinceEpoch}';
 
-        // 1. Execute Cloud Function (Admin SDK privileges, 100% bypasses rules)
-        try {
-          final callable = FirebaseFunctions.instanceFor(region: 'europe-west3').httpsCallable('verifyPaystackPayment');
-          await callable.call({
-            'reference': refStr,
-            'plan_id': widget.planId,
-            'amount': widget.amount,
-          });
-        } catch (cfErr) {
-          debugPrint('[TEST_MODE] Cloud Function call warning: $cfErr');
-        }
+        final userDocRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
+        debugPrint('[TEST_MODE] Firestore document path: ${userDocRef.path}');
 
-        // 2. Direct Firestore update as client fallback
-        try {
-          await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-            'subscription_tier': 'plus',
-            'subscription_active': true,
-            'subscription_plan': widget.planId,
-            'subscription_start': FieldValue.serverTimestamp(),
-            'subscription_started_at': FieldValue.serverTimestamp(),
-            'subscription_expires': Timestamp.fromDate(expiresAt),
-            'subscription_expires_at': Timestamp.fromDate(expiresAt),
-            'auto_renew': false,
-            'cancellation_requested': false,
-            'cancellation_requested_at': null,
-            'subscription_cancelled': false,
-            'paystack_reference': refStr,
-            'subscription_amount': widget.amount,
-          }, SetOptions(merge: true));
+        final writeData = {
+          'subscription_tier': 'plus',
+          'subscription_active': true,
+          'subscription_plan': widget.planId,
+          'subscription_start': FieldValue.serverTimestamp(),
+          'subscription_started_at': FieldValue.serverTimestamp(),
+          'subscription_expires': Timestamp.fromDate(expiresAt),
+          'subscription_expires_at': Timestamp.fromDate(expiresAt),
+          'auto_renew': false,
+          'cancellation_requested': false,
+          'cancellation_requested_at': null,
+          'subscription_cancelled': false,
+          'paystack_reference': refStr,
+          'subscription_amount': widget.amount,
+        };
+        debugPrint('[TEST_MODE] Writing fields to Firestore: $writeData');
 
-          await FirebaseFirestore.instance
-              .collection('users')
-              .doc(user.uid)
-              .collection('notifications')
-              .add({
+        // Step 2 item 3 & 4: Call set with merge true and await completely
+        await userDocRef.set(writeData, SetOptions(merge: true));
+        debugPrint('[TEST_MODE] SUCCESS: Direct Firestore user doc write completed successfully!');
+
+        // Add in-app notification doc
+        try {
+          await userDocRef.collection('notifications').add({
             'title': 'SafeTrace Plus Activated',
             'body': 'Your SafeTrace Plus subscription is now active. Enjoy unlimited access.',
             'notification_type': 'subscription_activated',
             'timestamp': FieldValue.serverTimestamp(),
             'created_at': FieldValue.serverTimestamp(),
           });
-        } catch (clientErr) {
-          debugPrint('[TEST_MODE] Client Firestore write warning: $clientErr');
+          debugPrint('[TEST_MODE] Notification document written successfully.');
+        } catch (notifErr) {
+          debugPrint('[TEST_MODE] Notification write note: $notifErr');
         }
+
+        // Optional background cloud function sync
+        try {
+          final callable = FirebaseFunctions.instanceFor(region: 'europe-west3').httpsCallable('verifyPaystackPayment');
+          callable.call({
+            'reference': refStr,
+            'plan_id': widget.planId,
+            'amount': widget.amount,
+          }).catchError((e) {
+            debugPrint('[TEST_MODE] Cloud function sync note: $e');
+            return const HttpsCallableResult(null);
+          });
+        } catch (_) {}
 
         if (!mounted) return;
 
-        // 3. Navigate immediately to SubscriptionSuccessScreen clearing payment stack
+        // Step 2 item 5 & 6: Only after confirming write succeeded, navigate to SubscriptionSuccessScreen
+        debugPrint('[TEST_MODE] Navigating to: SubscriptionSuccessScreen');
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(
             builder: (_) => SubscriptionSuccessScreen(expiryDate: expiresAt),
