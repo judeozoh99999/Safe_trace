@@ -9,6 +9,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../../core/services/sms_service.dart';
 import '../../location/services/location_service.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../../../core/providers/subscription_provider.dart';
 
 class PanicAlertScreen extends ConsumerStatefulWidget {
   const PanicAlertScreen({super.key});

@@ -69,6 +69,7 @@ class _AddContactRequestScreenState extends ConsumerState<AddContactRequestScree
       return;
     }
 
+    final normalizedPhone = _normalizePhone(rawPhone);
     final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser == null) return;
 
