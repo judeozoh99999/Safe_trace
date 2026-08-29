@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -102,14 +103,13 @@ class _TransferPaymentScreenState extends State<TransferPaymentScreen> {
         // Optional background cloud function sync
         try {
           final callable = FirebaseFunctions.instanceFor(region: 'europe-west3').httpsCallable('verifyPaystackPayment');
-          callable.call({
+          unawaited(callable.call({
             'reference': refStr,
             'plan_id': widget.planId,
             'amount': widget.amount,
           }).catchError((e) {
             debugPrint('[TEST_MODE] Cloud function sync note: $e');
-            return const HttpsCallableResult(null);
-          });
+          }));
         } catch (_) {}
 
         if (!mounted) return;
