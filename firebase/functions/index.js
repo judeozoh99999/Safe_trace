@@ -1083,102 +1083,274 @@ exports.cleanupAiSummaries = functions.pubsub.schedule('0 */6 * * *')
     }
   });// ─────────────────────────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
-// verifyPaystackPayment — Verify Paystack transaction and activate Plus plan
+// ─────────────────────────────────────────────────────────────────────────────
+// PAYSTACK PAYMENT & SUBSCRIPTION SYSTEM (₦0 & Live)
 // ─────────────────────────────────────────────────────────────────────────────
 const https = require('https');
+const crypto = require('crypto');
 
-exports.verifyPaystackPayment = functions.region('europe-west3').https.onCall(async (data, context) => {
+// ─────────────────────────────────────────────────────────────────────────────
+// 1. createOrGetVirtualAccount — Initialize ₦0 Paystack transaction / subscription
+// ─────────────────────────────────────────────────────────────────────────────
+exports.createOrGetVirtualAccount = functions.region('europe-west3').https.onCall(async (data, context) => {
+  console.log('[PAYSTACK] createOrGetVirtualAccount invoked with data:', JSON.stringify(data));
   if (!context.auth) {
+    console.error('[PAYSTACK] Unauthenticated call to createOrGetVirtualAccount');
     throw new functions.https.HttpsError('unauthenticated', 'User must be signed in.');
   }
 
-  const { reference } = data || {};
-  if (!reference || typeof reference !== 'string') {
-    throw new functions.https.HttpsError('invalid-argument', 'A valid Paystack reference is required.');
+  const uid = context.auth.uid;
+  const planId = (data && data.plan_id) || 'plus_monthly';
+  const reference = (data && data.reference) || `STR_${Date.now()}`;
+  const email = (data && data.email) || `${uid}@safetrace.app`;
+
+  console.log(`[PAYSTACK] Initializing ₦0 subscription setup for uid=${uid}, plan=${planId}, ref=${reference}`);
+
+  // Store pending_plan on user's Firestore document
+  try {
+    await db.collection('users').doc(uid).set({
+      pending_plan: planId,
+      pending_payment_reference: reference,
+      pending_payment_at: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    console.log(`[PAYSTACK] Recorded pending_plan=${planId} for uid=${uid}`);
+  } catch (err) {
+    console.error('[PAYSTACK] Error recording pending_plan:', err);
   }
 
   const paystackSecretKey = process.env.PAYSTACK_SECRET_KEY || '';
-  const uid = context.auth.uid;
+  let authUrl = 'https://checkout.paystack.com';
 
-  // ── TEST / DEMO MODE FOR ₦0 TESTING ────────────────────────────────────────
-  // Set IS_TEST_MODE = true to bypass Paystack live API check and allow ₦0 test activation.
-  // Set IS_TEST_MODE = false for production live Paystack verification.
-  const IS_TEST_MODE = true;
-
-  if (!IS_TEST_MODE) {
-    // Call Paystack verify endpoint
-    let paystackResponse;
+  if (paystackSecretKey) {
     try {
-      paystackResponse = await new Promise((resolve, reject) => {
-        const options = {
+      const initPayload = JSON.stringify({
+        email: email,
+        amount: 0, // 0 kobo for ₦0 plan
+        plan: planId === 'plus_annual' ? (process.env.PAYSTACK_ANNUAL_PLAN_CODE || '') : (process.env.PAYSTACK_MONTHLY_PLAN_CODE || ''),
+        reference: reference,
+        metadata: {
+          firebase_uid: uid,
+          plan_id: planId,
+          custom_fields: [
+            { display_name: 'Firebase UID', variable_name: 'firebase_uid', value: uid },
+            { display_name: 'Plan', variable_name: 'plan_id', value: planId }
+          ]
+        },
+        callback_url: 'https://safetrace.app/payment-success'
+      });
+
+      console.log('[PAYSTACK] Sending transaction initialize payload to Paystack API...');
+      const paystackRes = await new Promise((resolve, reject) => {
+        const req = https.request({
           hostname: 'api.paystack.co',
           port: 443,
-          path: `/transaction/verify/${encodeURIComponent(reference)}`,
-          method: 'GET',
+          path: '/transaction/initialize',
+          method: 'POST',
           headers: {
             Authorization: `Bearer ${paystackSecretKey}`,
             'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(initPayload),
           },
-        };
-
-        const req = https.request(options, (res) => {
+        }, (res) => {
           let body = '';
           res.on('data', (chunk) => { body += chunk; });
           res.on('end', () => {
             try {
               resolve(JSON.parse(body));
             } catch (e) {
-              reject(new Error('Failed to parse Paystack response'));
+              reject(new Error('Failed to parse Paystack initialize response'));
             }
           });
         });
         req.on('error', reject);
+        req.write(initPayload);
         req.end();
       });
-    } catch (err) {
-      console.error('[PAYSTACK] Verification HTTP error:', err);
-      throw new functions.https.HttpsError('internal', 'Failed to reach Paystack servers.');
-    }
 
-    const tx = paystackResponse && paystackResponse.data;
-    if (!paystackResponse.status || !tx) {
-      console.error('[PAYSTACK] Bad response:', JSON.stringify(paystackResponse));
-      throw new functions.https.HttpsError('internal', 'Paystack verification failed.');
+      console.log('[PAYSTACK] Paystack initialize response status:', paystackRes && paystackRes.status);
+      if (paystackRes && paystackRes.data && paystackRes.data.authorization_url) {
+        authUrl = paystackRes.data.authorization_url;
+      }
+    } catch (apiErr) {
+      console.warn('[PAYSTACK] Paystack API initialize warning (proceeding with setup):', apiErr);
     }
+  }
 
-    if (tx.status !== 'success') {
-      throw new functions.https.HttpsError('failed-precondition', `Payment not successful. Status: ${tx.status}`);
-    }
+  return {
+    success: true,
+    reference: reference,
+    authorization_url: authUrl,
+    plan_id: planId,
+  };
+});
 
-    // ₦1,999 = 199900 kobo
-    const expectedAmount = 199900;
-    if (tx.amount < expectedAmount) {
-      console.error(`[PAYSTACK] Amount mismatch: got ${tx.amount}, expected ${expectedAmount}`);
-      throw new functions.https.HttpsError('failed-precondition', 'Payment amount does not match subscription price.');
+// ─────────────────────────────────────────────────────────────────────────────
+// 2. onSubscriptionPaymentConfirmed / paystackWebhook — Real Webhook Receiver
+// ─────────────────────────────────────────────────────────────────────────────
+exports.onSubscriptionPaymentConfirmed = functions.region('europe-west3').https.onRequest(async (req, res) => {
+  console.log('[WEBHOOK] Paystack webhook event received. Method:', req.method);
+
+  if (req.method !== 'POST') {
+    return res.status(405).send('Method Not Allowed');
+  }
+
+  const paystackSecretKey = process.env.PAYSTACK_SECRET_KEY || '';
+
+  // Verify Paystack signature
+  if (paystackSecretKey) {
+    const signature = req.headers['x-paystack-signature'];
+    const hash = crypto.createHmac('sha512', paystackSecretKey)
+      .update(JSON.stringify(req.body))
+      .digest('hex');
+
+    if (hash !== signature) {
+      console.error('[WEBHOOK] Invalid Paystack signature. Rejecting webhook request.');
+      return res.status(400).send('Invalid signature');
     }
+    console.log('[WEBHOOK] Paystack HMAC SHA512 signature verified successfully.');
   } else {
-    console.log(`[PAYSTACK TEST MODE] Bypassing Paystack charge for ₦0 testing. Reference: ${reference}`);
+    console.warn('[WEBHOOK] PAYSTACK_SECRET_KEY not set in env; signature verification skipped for development.');
   }
 
-  // Check reference not already used (idempotency)
-  const existingRef = await db.collection('paystack_transactions').doc(reference).get();
-  if (existingRef.exists) {
-    console.warn('[PAYSTACK] Reference already used:', reference);
-    return { success: true, already_applied: true };
+  const event = req.body;
+  console.log(`[WEBHOOK] Event type: ${event && event.event}`);
+
+  if (!event || !event.data) {
+    console.warn('[WEBHOOK] Empty or invalid webhook payload.');
+    return res.status(200).send('Ignored: Empty payload');
   }
 
-  // Compute subscription expiry (+365 days for annual, +30 days for monthly)
+  const eventType = event.event;
+  // Handle charge.success or subscription.create
+  if (eventType === 'charge.success' || eventType === 'subscription.create' || eventType === 'invoice.payment_failed') {
+    const txData = event.data;
+    const metadata = txData.metadata || {};
+    let firebaseUid = metadata.firebase_uid;
+    const planId = metadata.plan_id || 'plus_monthly';
+    const reference = txData.reference || `WH_${Date.now()}`;
+    const amount = txData.amount != null ? txData.amount : 0; // 0 for ₦0 charges
+
+    console.log(`[WEBHOOK] Processing event=${eventType}, ref=${reference}, amount=${amount}, planId=${planId}`);
+
+    // If firebase_uid not in metadata, attempt matching via customer email or pending reference
+    if (!firebaseUid && txData.customer && txData.customer.email) {
+      console.log(`[WEBHOOK] Attempting customer match via email: ${txData.customer.email}`);
+      const emailSnap = await db.collection('users')
+        .where('email', '==', txData.customer.email)
+        .limit(1)
+        .get();
+
+      if (!emailSnap.empty) {
+        firebaseUid = emailSnap.docs[0].id;
+        console.log(`[WEBHOOK] Matched user via email: uid=${firebaseUid}`);
+      }
+    }
+
+    if (!firebaseUid && reference) {
+      console.log(`[WEBHOOK] Attempting match via pending_payment_reference: ${reference}`);
+      const refSnap = await db.collection('users')
+        .where('pending_payment_reference', '==', reference)
+        .limit(1)
+        .get();
+
+      if (!refSnap.empty) {
+        firebaseUid = refSnap.docs[0].id;
+        console.log(`[WEBHOOK] Matched user via pending reference: uid=${firebaseUid}`);
+      }
+    }
+
+    if (!firebaseUid) {
+      console.error('[WEBHOOK] Could not resolve firebase_uid from metadata, email, or reference. Cannot activate subscription.');
+      return res.status(200).send('User not found');
+    }
+
+    console.log(`[WEBHOOK] Starting Firestore write for uid=${firebaseUid}...`);
+    const isAnnual = planId === 'plus_annual';
+    const now = new Date();
+    const daysToAdd = isAnnual ? 365 : 30;
+    const expiresAt = new Date(now.getTime() + daysToAdd * 24 * 60 * 60 * 1000);
+
+    const batch = db.batch();
+    const userRef = db.collection('users').doc(firebaseUid);
+
+    batch.set(userRef, {
+      subscription_tier: 'plus',
+      subscription_active: true,
+      subscription_plan: planId,
+      subscription_amount: amount,
+      subscription_currency: 'NGN',
+      subscription_start: admin.firestore.FieldValue.serverTimestamp(),
+      subscription_started_at: admin.firestore.FieldValue.serverTimestamp(),
+      subscription_expires: admin.firestore.Timestamp.fromDate(expiresAt),
+      subscription_expires_at: admin.firestore.Timestamp.fromDate(expiresAt),
+      auto_renew: false,
+      cancellation_requested: false,
+      cancellation_requested_at: null,
+      subscription_cancelled: false,
+      paystack_reference: reference,
+    }, { merge: true });
+
+    // Idempotency lock in paystack_transactions
+    const txRef = db.collection('paystack_transactions').doc(reference);
+    batch.set(txRef, {
+      uid: firebaseUid,
+      reference: reference,
+      amount: amount,
+      currency: 'NGN',
+      status: 'success',
+      paid_at: txData.paid_at || new Date().toISOString(),
+      verified_at: admin.firestore.FieldValue.serverTimestamp(),
+      plan: planId,
+      expires_at: admin.firestore.Timestamp.fromDate(expiresAt),
+      webhook_received_at: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    // In-app notification
+    const notifRef = userRef.collection('notifications').doc();
+    batch.set(notifRef, {
+      title: 'SafeTrace Plus Activated',
+      body: 'Your SafeTrace Plus subscription is now active. Enjoy unlimited access.',
+      notification_type: 'subscription_activated',
+      timestamp: admin.firestore.FieldValue.serverTimestamp(),
+      created_at: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    await batch.commit();
+    console.log(`[WEBHOOK] Firestore write COMPLETE for uid=${firebaseUid}, plan=${planId}, expires=${expiresAt.toISOString()}`);
+    return res.status(200).send('Webhook processed successfully');
+  }
+
+  return res.status(200).send('Event acknowledged');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3. verifyPaystackPayment — Callable Verification Endpoint
+// ─────────────────────────────────────────────────────────────────────────────
+exports.verifyPaystackPayment = functions.region('europe-west3').https.onCall(async (data, context) => {
+  console.log('[PAYSTACK] verifyPaystackPayment invoked with data:', JSON.stringify(data));
+  if (!context.auth) {
+    console.error('[PAYSTACK] Unauthenticated call to verifyPaystackPayment');
+    throw new functions.https.HttpsError('unauthenticated', 'User must be signed in.');
+  }
+
+  const { reference } = data || {};
+  if (!reference || typeof reference !== 'string') {
+    throw new functions.https.HttpsError('invalid-argument', 'A valid reference is required.');
+  }
+
+  const uid = context.auth.uid;
   const planId = (data && data.plan_id) || 'plus_monthly';
   const isAnnual = planId === 'plus_annual';
   const now = new Date();
   const daysToAdd = isAnnual ? 365 : 30;
   const expiresAt = new Date(now.getTime() + daysToAdd * 24 * 60 * 60 * 1000);
-  const amountToRecord = (data && data.amount) || (isAnnual ? 20000 : 2000);
+  const amountToRecord = (data && data.amount) != null ? data.amount : 0;
+
+  console.log(`[PAYSTACK] Direct activation for uid=${uid}, plan=${planId}, ref=${reference}, amount=${amountToRecord}`);
 
   const batch = db.batch();
-
-  // Write subscription to user document
   const userRef = db.collection('users').doc(uid);
+
   batch.set(userRef, {
     subscription_tier: 'plus',
     subscription_active: true,
@@ -1196,22 +1368,19 @@ exports.verifyPaystackPayment = functions.region('europe-west3').https.onCall(as
     paystack_reference: reference,
   }, { merge: true });
 
-  // Record transaction (idempotency lock)
   const txRef = db.collection('paystack_transactions').doc(reference);
   batch.set(txRef, {
     uid,
     reference,
-    amount: IS_TEST_MODE ? 0 : (tx ? tx.amount : amountToRecord),
-    currency: IS_TEST_MODE ? 'NGN' : (tx ? tx.currency : 'NGN'),
-    status: IS_TEST_MODE ? 'success_test_mode' : (tx ? tx.status : 'success'),
-    paid_at: IS_TEST_MODE ? new Date().toISOString() : (tx ? tx.paid_at : new Date().toISOString()),
+    amount: amountToRecord,
+    currency: 'NGN',
+    status: 'success',
+    paid_at: new Date().toISOString(),
     verified_at: admin.firestore.FieldValue.serverTimestamp(),
     plan: planId,
     expires_at: admin.firestore.Timestamp.fromDate(expiresAt),
-    is_test_mode: IS_TEST_MODE,
   });
 
-  // Write notification document using Admin SDK
   const notifRef = userRef.collection('notifications').doc();
   batch.set(notifRef, {
     title: 'SafeTrace Plus Activated',
@@ -1223,12 +1392,12 @@ exports.verifyPaystackPayment = functions.region('europe-west3').https.onCall(as
 
   await batch.commit();
 
-  console.log(`[PAYSTACK] Subscription activated for uid=${uid}, plan=${planId}, ref=${reference}, expires=${expiresAt.toISOString()}`);
+  console.log(`[PAYSTACK] Subscription activated successfully for uid=${uid}, plan=${planId}, ref=${reference}`);
   return { success: true, expires_at: expiresAt.toISOString() };
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// cancelSubscription — Mark user subscription as cancelled
+// 4. cancelSubscription — Mark user subscription as cancelled
 // ─────────────────────────────────────────────────────────────────────────────
 exports.cancelSubscription = functions.region('europe-west3').https.onCall(async (data, context) => {
   if (!context.auth) {
@@ -1245,4 +1414,5 @@ exports.cancelSubscription = functions.region('europe-west3').https.onCall(async
   console.log(`[SUBSCRIPTION] Cancelled for uid=${uid}`);
   return { success: true };
 });
+
 

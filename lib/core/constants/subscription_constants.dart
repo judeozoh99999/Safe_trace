@@ -1,4 +1,5 @@
 /// Subscription Constants
-///
-/// IMPORTANT: Set to false before production release.
-const bool SUBSCRIPTION_TEST_MODE = true;
+/// Live Paystack Integration Constants
+
+const String PAYSTACK_PLAN_MONTHLY = 'plus_monthly';
+const String PAYSTACK_PLAN_ANNUAL = 'plus_annual';
