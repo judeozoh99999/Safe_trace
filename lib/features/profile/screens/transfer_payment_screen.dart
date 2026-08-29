@@ -82,40 +82,58 @@ class _TransferPaymentScreenState extends State<TransferPaymentScreen> {
         };
         debugPrint('[TEST_MODE] Writing fields to Firestore: $writeData');
 
-        // Step 2 item 3 & 4: Call set with merge true and await completely
-        await userDocRef.set(writeData, SetOptions(merge: true));
-        debugPrint('[TEST_MODE] SUCCESS: Direct Firestore user doc write completed successfully!');
+        bool writeSucceeded = false;
+        String? writeError;
 
-        // Add in-app notification doc
+        // 1. Primary Method: Execute Cloud Function with Firebase Admin SDK privileges (100% bypasses rules)
         try {
-          await userDocRef.collection('notifications').add({
-            'title': 'SafeTrace Plus Activated',
-            'body': 'Your SafeTrace Plus subscription is now active. Enjoy unlimited access.',
-            'notification_type': 'subscription_activated',
-            'timestamp': FieldValue.serverTimestamp(),
-            'created_at': FieldValue.serverTimestamp(),
-          });
-          debugPrint('[TEST_MODE] Notification document written successfully.');
-        } catch (notifErr) {
-          debugPrint('[TEST_MODE] Notification write note: $notifErr');
-        }
-
-        // Optional background cloud function sync
-        try {
+          debugPrint('[TEST_MODE] Invoking verifyPaystackPayment Cloud Function (Admin SDK)...');
           final callable = FirebaseFunctions.instanceFor(region: 'europe-west3').httpsCallable('verifyPaystackPayment');
-          unawaited(callable.call({
+          final result = await callable.call({
             'reference': refStr,
             'plan_id': widget.planId,
             'amount': widget.amount,
-          }).catchError((e) {
-            debugPrint('[TEST_MODE] Cloud function sync note: $e');
-          }));
-        } catch (_) {}
+          });
+          debugPrint('[TEST_MODE] Cloud Function activation response: ${result.data}');
+          writeSucceeded = true;
+        } catch (cfErr) {
+          debugPrint('[TEST_MODE] Cloud Function activation note: $cfErr');
+          writeError = cfErr.toString();
+        }
+
+        // 2. Direct Firestore client write (as dual-sync / fallback)
+        try {
+          debugPrint('[TEST_MODE] Attempting direct Firestore client write: ${userDocRef.path}');
+          await userDocRef.set(writeData, SetOptions(merge: true));
+          debugPrint('[TEST_MODE] SUCCESS: Direct Firestore user doc write completed successfully!');
+          writeSucceeded = true;
+
+          // Add in-app notification doc
+          try {
+            await userDocRef.collection('notifications').add({
+              'title': 'SafeTrace Plus Activated',
+              'body': 'Your SafeTrace Plus subscription is now active. Enjoy unlimited access.',
+              'notification_type': 'subscription_activated',
+              'timestamp': FieldValue.serverTimestamp(),
+              'created_at': FieldValue.serverTimestamp(),
+            });
+            debugPrint('[TEST_MODE] Notification document written successfully.');
+          } catch (_) {}
+        } catch (clientErr) {
+          debugPrint('[TEST_MODE] Direct Firestore client write note (e.g. rules): $clientErr');
+          if (!writeSucceeded) {
+            writeError = clientErr.toString();
+          }
+        }
+
+        if (!writeSucceeded) {
+          throw Exception(writeError ?? 'Failed to activate subscription. Please check your network connection.');
+        }
 
         if (!mounted) return;
 
-        // Step 2 item 5 & 6: Only after confirming write succeeded, navigate to SubscriptionSuccessScreen
-        debugPrint('[TEST_MODE] Navigating to: SubscriptionSuccessScreen');
+        // Step 2 item 5 & 6: Navigate to SubscriptionSuccessScreen
+        debugPrint('[TEST_MODE] Activation complete! Navigating to: SubscriptionSuccessScreen');
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(
             builder: (_) => SubscriptionSuccessScreen(expiryDate: expiresAt),
