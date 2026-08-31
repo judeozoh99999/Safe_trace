@@ -1,5 +1,8 @@
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
+/// Top-level constant for compatibility
+const bool SUBSCRIPTION_TEST_MODE = true;
+
 /// Subscription Constants & Plan Configurations
 class SubscriptionConstants {
   /// IMPORTANT: Set to false before production release.
