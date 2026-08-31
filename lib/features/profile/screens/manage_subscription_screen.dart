@@ -147,8 +147,11 @@ class _ManageSubscriptionScreenState extends ConsumerState<ManageSubscriptionScr
         'cancellation_requested': true,
         'cancellation_requested_at': FieldValue.serverTimestamp(),
         'auto_renew': false,
-        'subscription_cancelled': true,
       };
+
+      if (SUBSCRIPTION_TEST_MODE) {
+        updateData['subscription_cancelled'] = true;
+      }
 
       await FirebaseFirestore.instance
           .collection('users')

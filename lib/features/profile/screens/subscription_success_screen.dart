@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import '../../../core/constants/subscription_constants.dart';
 import '../../../core/services/subscription_service.dart';
 
 class SubscriptionSuccessScreen extends StatelessWidget {
@@ -163,6 +164,20 @@ class SubscriptionSuccessScreen extends StatelessWidget {
                   ),
                 ),
               ),
+
+              // ── Test Mode Label at very bottom ──
+              if (SUBSCRIPTION_TEST_MODE) ...[
+                const SizedBox(height: 12),
+                Text(
+                  'Test Mode — Subscription activated without payment',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: isDark ? const Color(0xFF6B7280) : const Color(0xFF9CA3AF),
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
 
               const SizedBox(height: 12),
             ],
