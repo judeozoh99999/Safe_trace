@@ -3,9 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 import '../../../core/constants/subscription_constants.dart';
-import 'subscription_success_screen.dart';
+import '../../../core/services/paystack_service.dart';
 import 'payment_pending_screen.dart';
 
 class TransferPaymentScreen extends StatefulWidget {
@@ -43,9 +42,8 @@ class _TransferPaymentScreenState extends State<TransferPaymentScreen> {
     );
   }
 
-  Future<void> _handleIHavePaid() async {
+  Future<void> _handlePaystackCheckout() async {
     final user = FirebaseAuth.instance.currentUser;
-    debugPrint('[TEST_MODE] Current Auth User UID: ${user?.uid}');
     if (user == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please sign in to complete subscription.')),
@@ -56,90 +54,20 @@ class _TransferPaymentScreenState extends State<TransferPaymentScreen> {
     setState(() => _isProcessing = true);
 
     try {
-      if (SUBSCRIPTION_TEST_MODE) {
-        // ── TEST MODE: Instant Activation ──
-        final bool isAnnual = widget.planId == 'plus_annual';
-        final expiresAt = DateTime.now().add(Duration(days: isAnnual ? 365 : 30));
-        final refStr = 'STR_TEST_${DateTime.now().millisecondsSinceEpoch}';
+      final amountInKobo = SubscriptionConstants.isTestMode
+          ? SubscriptionConstants.testPriceInKobo
+          : (widget.amount * 100);
 
-        final userDocRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
-        debugPrint('[TEST_MODE] Firestore document path: ${userDocRef.path}');
-
-        final writeData = {
-          'subscription_tier': 'plus',
-          'subscription_active': true,
-          'subscription_plan': widget.planId,
-          'subscription_start': FieldValue.serverTimestamp(),
-          'subscription_started_at': FieldValue.serverTimestamp(),
-          'subscription_expires': Timestamp.fromDate(expiresAt),
-          'subscription_expires_at': Timestamp.fromDate(expiresAt),
-          'auto_renew': false,
-          'cancellation_requested': false,
-          'cancellation_requested_at': null,
-          'subscription_cancelled': false,
-          'paystack_reference': refStr,
-          'subscription_amount': widget.amount,
-        };
-        debugPrint('[TEST_MODE] Writing fields to Firestore: $writeData');
-
-        // Step 2 item 3 & 4: Call set with merge true and await completely
-        await userDocRef.set(writeData, SetOptions(merge: true));
-        debugPrint('[TEST_MODE] SUCCESS: Direct Firestore user doc write completed successfully!');
-
-        // Add in-app notification doc
-        try {
-          await userDocRef.collection('notifications').add({
-            'title': 'SafeTrace Plus Activated',
-            'body': 'Your SafeTrace Plus subscription is now active. Enjoy unlimited access.',
-            'notification_type': 'subscription_activated',
-            'timestamp': FieldValue.serverTimestamp(),
-            'created_at': FieldValue.serverTimestamp(),
-          });
-          debugPrint('[TEST_MODE] Notification document written successfully.');
-        } catch (notifErr) {
-          debugPrint('[TEST_MODE] Notification write note: $notifErr');
-        }
-
-        // Optional background cloud function sync
-        try {
-          final callable = FirebaseFunctions.instanceFor(region: 'europe-west3').httpsCallable('verifyPaystackPayment');
-          unawaited(callable.call({
-            'reference': refStr,
-            'plan_id': widget.planId,
-            'amount': widget.amount,
-          }).catchError((e) {
-            debugPrint('[TEST_MODE] Cloud function sync note: $e');
-          }));
-        } catch (_) {}
-
-        if (!mounted) return;
-
-        // Step 2 item 5 & 6: Only after confirming write succeeded, navigate to SubscriptionSuccessScreen
-        debugPrint('[TEST_MODE] Navigating to: SubscriptionSuccessScreen');
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(
-            builder: (_) => SubscriptionSuccessScreen(expiryDate: expiresAt),
-          ),
-          (route) => route.isFirst,
-        );
-        return;
-      }
-
-      // ── NORMAL / PRODUCTION MODE: Go to Payment Pending Screen ──
-      if (!mounted) return;
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => PaymentPendingScreen(
-            planId: widget.planId,
-            planName: widget.planName,
-            amount: widget.amount,
-          ),
-        ),
+      await PaystackService.startCheckout(
+        context: context,
+        planId: widget.planId,
+        planName: widget.planName,
+        amountInKobo: amountInKobo,
       );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error activating subscription: $e')),
+          SnackBar(content: Text('Payment initiation failed: $e')),
         );
       }
     } finally {
@@ -150,7 +78,8 @@ class _TransferPaymentScreenState extends State<TransferPaymentScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final formattedAmount = '₦${widget.amount.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},')}';
+    final displayAmount = SubscriptionConstants.isTestMode ? 100 : widget.amount;
+    final formattedAmount = '₦${displayAmount.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},')}';
 
     return Scaffold(
       backgroundColor: isDark ? const Color(0xFF0F1117) : const Color(0xFFF9FAFB),
@@ -203,60 +132,58 @@ class _TransferPaymentScreenState extends State<TransferPaymentScreen> {
                       ),
                     ),
                     const SizedBox(height: 6),
-                    Text(
-                      formattedAmount,
-                      style: const TextStyle(
-                        fontSize: 32,
-                        fontWeight: FontWeight.w900,
-                        color: Color(0xFFEF4444),
-                      ),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.baseline,
+                      textBaseline: TextBaseline.alphabetic,
+                      children: [
+                        Text(
+                          formattedAmount,
+                          style: TextStyle(
+                            fontSize: 28,
+                            fontWeight: FontWeight.w900,
+                            color: isDark ? Colors.white : const Color(0xFF111827),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          widget.billingPeriod,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: isDark ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280),
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      widget.billingPeriod,
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: isDark ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280),
+                    if (SubscriptionConstants.isTestMode)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8.0),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                          ),
+                          child: const Text(
+                            'TEST MODE: ₦100 charges using test card',
+                            style: TextStyle(
+                              color: Colors.blue,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
                   ],
                 ),
               ),
 
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
 
-              // ── 2. How to Pay Section ──
-              Text(
-                'How to Pay',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                  color: isDark ? Colors.white : const Color(0xFF111827),
-                ),
-              ),
-              const SizedBox(height: 10),
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: isDark ? const Color(0xFF12141C) : const Color(0xFFF3F4F6),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Column(
-                  children: [
-                    _buildStepRow('1', 'Open your banking app or USSD.', isDark),
-                    const SizedBox(height: 10),
-                    _buildStepRow('2', 'Transfer exactly the amount shown above to the account below.', isDark),
-                    const SizedBox(height: 10),
-                    _buildStepRow('3', 'Return to SafeTrace — your subscription activates automatically.', isDark),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 20),
-
-              // ── 3. Bank Account Details Card ──
+              // ── 2. How it works / Instructions ──
               Container(
                 width: double.infinity,
+                padding: const EdgeInsets.all(18),
                 decoration: BoxDecoration(
                   color: isDark ? const Color(0xFF1A1D27) : Colors.white,
                   borderRadius: BorderRadius.circular(16),
@@ -264,160 +191,73 @@ class _TransferPaymentScreenState extends State<TransferPaymentScreen> {
                     color: isDark ? const Color(0xFF2E3347) : const Color(0xFFE5E7EB),
                   ),
                 ),
-                clipBehavior: Clip.antiAlias,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // TEST MODE Amber Banner (ONLY when SUBSCRIPTION_TEST_MODE is true)
-                    if (SUBSCRIPTION_TEST_MODE) ...[
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                        color: const Color(0xFFF59E0B).withOpacity(0.18),
-                        child: Row(
-                          children: const [
-                            Icon(Icons.warning_amber_rounded, color: Color(0xFFF59E0B), size: 16),
-                            SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'TEST MODE — Tap I Have Paid to activate instantly without transferring',
-                                style: TextStyle(
-                                  color: Color(0xFFF59E0B),
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-
-                    Padding(
-                      padding: const EdgeInsets.all(18),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Bank Name',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: isDark ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280),
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            bankName,
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w800,
-                              color: isDark ? Colors.white : const Color(0xFF111827),
-                            ),
-                          ),
-
-                          const SizedBox(height: 14),
-
-                          Text(
-                            'Account Number',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: isDark ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280),
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            accountNumber,
-                            style: TextStyle(
-                              fontSize: 26,
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: 1.5,
-                              color: isDark ? Colors.white : const Color(0xFF111827),
-                            ),
-                          ),
-
-                          const SizedBox(height: 14),
-
-                          Text(
-                            'Account Name',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: isDark ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280),
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            accountName,
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w700,
-                              color: isDark ? Colors.white : const Color(0xFF111827),
-                            ),
-                          ),
-
-                          const SizedBox(height: 16),
-
-                          // Copy Account Number Button
-                          SizedBox(
-                            width: double.infinity,
-                            height: 42,
-                            child: OutlinedButton.icon(
-                              style: OutlinedButton.styleFrom(
-                                side: BorderSide(
-                                  color: isDark ? const Color(0xFF374151) : const Color(0xFFD1D5DB),
-                                ),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                              ),
-                              onPressed: () => _copyToClipboard(accountNumber, 'Account number'),
-                              icon: const Icon(Icons.copy_rounded, size: 16, color: Color(0xFFEF4444)),
-                              label: const Text(
-                                'Copy Account Number',
-                                style: TextStyle(
-                                  color: Color(0xFFEF4444),
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 13,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
+                    Text(
+                      'Payment Instructions',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        color: isDark ? Colors.white : const Color(0xFF111827),
                       ),
                     ),
+                    const SizedBox(height: 14),
+                    _buildStepRow('1', 'Tap the "Pay with Paystack" button below.', isDark),
+                    const SizedBox(height: 10),
+                    _buildStepRow('2', 'Enter your card or test card details.', isDark),
+                    const SizedBox(height: 10),
+                    _buildStepRow('3', 'Complete verification to instantly activate your subscription.', isDark),
                   ],
                 ),
               ),
 
               const SizedBox(height: 16),
 
-              // ── 4. Warning Card in Amber ──
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF59E0B).withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFF59E0B).withOpacity(0.3)),
-                ),
-                child: Row(
-                  children: const [
-                    Icon(Icons.warning_amber_rounded, color: Color(0xFFF59E0B), size: 20),
-                    SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'Transfer exactly the correct amount. Sending a different amount may delay activation.',
-                        style: TextStyle(
-                          color: Color(0xFFF59E0B),
+              // ── 3. Test Card Info Card (When in Test Mode) ──
+              if (SubscriptionConstants.isTestMode)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1E293B),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xFF334155)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: const [
+                          Icon(Icons.credit_card_rounded, color: Color(0xFF38BDF8), size: 18),
+                          SizedBox(width: 8),
+                          Text(
+                            'Paystack Official Test Card',
+                            style: TextStyle(
+                              color: Color(0xFF38BDF8),
+                              fontWeight: FontWeight.w800,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        'Card: 4084 0840 8408 4081\nExpiry: Any future date (e.g. 12/28)\nCVV: 408   |   PIN: 0000   |   OTP: 123456',
+                        style: const TextStyle(
+                          color: Color(0xFFE2E8F0),
                           fontSize: 12,
-                          fontWeight: FontWeight.w600,
+                          fontFamily: 'monospace',
+                          height: 1.5,
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
 
               const SizedBox(height: 24),
 
-              // ── 5. I Have Paid Button ──
+              // ── 4. Pay with Paystack Button ──
               SizedBox(
                 width: double.infinity,
                 height: 52,
@@ -427,7 +267,7 @@ class _TransferPaymentScreenState extends State<TransferPaymentScreen> {
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                     elevation: 0,
                   ),
-                  onPressed: _isProcessing ? null : _handleIHavePaid,
+                  onPressed: _isProcessing ? null : _handlePaystackCheckout,
                   child: _isProcessing
                       ? const SizedBox(
                           width: 22,
@@ -437,20 +277,27 @@ class _TransferPaymentScreenState extends State<TransferPaymentScreen> {
                             color: Colors.white,
                           ),
                         )
-                      : Text(
-                          SUBSCRIPTION_TEST_MODE ? 'I Have Paid — Test Mode' : 'I Have Paid',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w900,
-                          ),
+                      : Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: const [
+                            Icon(Icons.lock_outline_rounded, color: Colors.white, size: 18),
+                            SizedBox(width: 8),
+                            Text(
+                              'Pay with Paystack',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ],
                         ),
                 ),
               ),
 
               const SizedBox(height: 16),
 
-              // ── 6. Contact Support Link ──
+              // ── 5. Contact Support Link ──
               Center(
                 child: GestureDetector(
                   onTap: () {

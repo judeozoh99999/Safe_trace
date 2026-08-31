@@ -9,12 +9,14 @@ class PaymentPendingScreen extends StatefulWidget {
   final String planId;
   final String planName;
   final int amount;
+  final String? transactionReference;
 
   const PaymentPendingScreen({
     super.key,
     required this.planId,
     required this.planName,
     required this.amount,
+    this.transactionReference,
   });
 
   @override
@@ -46,12 +48,12 @@ class _PaymentPendingScreenState extends State<PaymentPendingScreen> with Single
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
 
-    // 2. Start timer counting up
+    // 2. Start timer counting up (10 min timeout = 600s)
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) return;
       setState(() {
         _elapsedSeconds++;
-        if (_elapsedSeconds >= 900) { // 15 minutes = 900 seconds
+        if (_elapsedSeconds >= 600) { // 10 minutes = 600 seconds
           _isTimedOut = true;
           _timer?.cancel();
         }
@@ -118,23 +120,24 @@ class _PaymentPendingScreenState extends State<PaymentPendingScreen> with Single
   Future<void> _checkStatusManually() async {
     setState(() => _isManualChecking = true);
     try {
-      final callable = FirebaseFunctions.instanceFor(region: 'europe-west3').httpsCallable('verifyPaystackPayment');
-      final result = await callable.call();
+      final callable = FirebaseFunctions.instanceFor(region: 'europe-west3').httpsCallable('verifyTransactionManually');
+      final result = await callable.call({
+        'reference': widget.transactionReference,
+      });
 
       final data = result.data as Map<dynamic, dynamic>?;
       if (data != null && data['success'] == true) {
-        // Active! Listener will navigate automatically or handle here
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Payment verified! Activating subscription...')),
+          const SnackBar(content: Text('Payment verified! Activating SafeTrace Plus...')),
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Transfer not confirmed by Paystack yet. Please wait a moment.')),
+          const SnackBar(content: Text('Payment not confirmed yet. Please wait a moment.')),
         );
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Verification check failed: $e')),
+        SnackBar(content: Text('Verification check: $e')),
       );
     } finally {
       if (mounted) setState(() => _isManualChecking = false);
@@ -178,19 +181,21 @@ class _PaymentPendingScreenState extends State<PaymentPendingScreen> with Single
                     shape: BoxShape.circle,
                     border: Border.all(color: const Color(0xFFEF4444).withOpacity(0.4), width: 2),
                   ),
-                  child: const Icon(
-                    Icons.hourglass_top_rounded,
-                    color: Color(0xFFEF4444),
-                    size: 44,
+                  child: const Center(
+                    child: Icon(
+                      Icons.sync_rounded,
+                      size: 48,
+                      color: Color(0xFFEF4444),
+                    ),
                   ),
                 ),
               ),
 
               const SizedBox(height: 32),
 
-              // Heading
+              // Title
               Text(
-                'Waiting for Payment Confirmation',
+                'Confirming Your Payment',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 22,
@@ -201,158 +206,134 @@ class _PaymentPendingScreenState extends State<PaymentPendingScreen> with Single
 
               const SizedBox(height: 12),
 
-              // Body text
+              // Description
               Text(
-                'We are waiting to confirm your transfer. This usually takes 1 to 5 minutes. Keep the app open.',
+                'We are verifying your transaction with Paystack.\nThis screen will automatically update once confirmed.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 14,
-                  height: 1.4,
+                  height: 1.45,
                   color: isDark ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280),
                 ),
               ),
 
+              if (widget.transactionReference != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8.0),
+                  child: Text(
+                    'Ref: ${widget.transactionReference}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontFamily: 'monospace',
+                      color: isDark ? const Color(0xFF6B7280) : const Color(0xFF9CA3AF),
+                    ),
+                  ),
+                ),
+
               const SizedBox(height: 24),
 
-              // Live Timer Count
+              // Timer Badge
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 decoration: BoxDecoration(
-                  color: isDark ? const Color(0xFF1A1D27) : const Color(0xFFE5E7EB),
+                  color: isDark ? const Color(0xFF1F2937) : const Color(0xFFE5E7EB),
                   borderRadius: BorderRadius.circular(20),
                 ),
-                child: Text(
-                  _formatTimer(_elapsedSeconds),
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 2.0,
-                    color: isDark ? Colors.white : const Color(0xFF111827),
-                  ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.timer_outlined,
+                      size: 16,
+                      color: isDark ? const Color(0xFFD1D5DB) : const Color(0xFF4B5563),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      _formatTimer(_elapsedSeconds),
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        fontFamily: 'monospace',
+                        color: isDark ? const Color(0xFFD1D5DB) : const Color(0xFF4B5563),
+                      ),
+                    ),
+                  ],
                 ),
               ),
 
-              const SizedBox(height: 16),
+              const Spacer(),
 
-              // Pulsing status indicator reading "Listening for your transfer..."
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    width: 8,
-                    height: 8,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF16A34A),
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Listening for your transfer...',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: isDark ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280),
-                    ),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 24),
-
-              // 15-Minute Timeout Banner
+              // Timed out warning or Manual check button
               if (_isTimedOut) ...[
                 Container(
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFEF4444).withOpacity(0.12),
+                    color: const Color(0xFFF59E0B).withOpacity(0.12),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFFEF4444).withOpacity(0.3)),
+                    border: Border.all(color: const Color(0xFFF59E0B).withOpacity(0.3)),
                   ),
-                  child: Column(
-                    children: [
-                      const Text(
-                        'Transfer not detected yet. If you have already paid please wait a few more minutes or contact support.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: Color(0xFFEF4444),
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          OutlinedButton(
-                            onPressed: () {
-                              setState(() {
-                                _elapsedSeconds = 0;
-                                _isTimedOut = false;
-                              });
-                            },
-                            child: const Text('Retry'),
-                          ),
-                          const SizedBox(width: 12),
-                          TextButton(
-                            onPressed: () {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Support email: support@safetrace.app')),
-                              );
-                            },
-                            child: const Text('Contact Support'),
-                          ),
-                        ],
-                      ),
-                    ],
+                  child: const Text(
+                    'Payment not confirmed yet. If you have completed payment, tap "Check Payment Status" below or contact support.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Color(0xFFF59E0B),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 16),
               ],
 
-              const Spacer(),
-
-              // Check Status Manually Button
+              // Manual Check Button
               SizedBox(
                 width: double.infinity,
-                height: 50,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFEF4444),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                    elevation: 0,
+                height: 48,
+                child: OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(
+                      color: isDark ? const Color(0xFF374151) : const Color(0xFFD1D5DB),
+                    ),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                   onPressed: _isManualChecking ? null : _checkStatusManually,
                   child: _isManualChecking
                       ? const SizedBox(
-                          width: 22,
-                          height: 22,
-                          child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white),
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Text(
-                          'Check Status Manually',
-                          style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w800),
+                      : Text(
+                          'Check Payment Status',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: isDark ? Colors.white : const Color(0xFF111827),
+                          ),
                         ),
                 ),
               ),
 
               const SizedBox(height: 12),
 
-              // I Will Do This Later text button
-              Center(
-                child: TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: Text(
-                    'I Will Do This Later',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: isDark ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280),
-                    ),
+              // Contact Support Button
+              TextButton(
+                onPressed: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Support email: support@safetrace.app')),
+                  );
+                },
+                child: Text(
+                  'Having issues? Contact Support',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: isDark ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280),
+                    decoration: TextDecoration.underline,
                   ),
                 ),
               ),
-              const SizedBox(height: 12),
+
+              const SizedBox(height: 8),
             ],
           ),
         ),

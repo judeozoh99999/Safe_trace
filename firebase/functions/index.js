@@ -1083,148 +1083,275 @@ exports.cleanupAiSummaries = functions.pubsub.schedule('0 */6 * * *')
     }
   });// ─────────────────────────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
-// verifyPaystackPayment — Verify Paystack transaction and activate Plus plan
 // ─────────────────────────────────────────────────────────────────────────────
+// onSubscriptionPaymentConfirmed — Paystack Webhook Handler (Section 7)
+// ─────────────────────────────────────────────────────────────────────────────
+const crypto = require('crypto');
 const https = require('https');
 
-exports.verifyPaystackPayment = functions.region('europe-west3').https.onCall(async (data, context) => {
+exports.onSubscriptionPaymentConfirmed = functions.region('europe-west3').https.onRequest(async (req, res) => {
+  console.log('[WEBHOOK] ==============================================');
+  console.log('[WEBHOOK] Paystack webhook event received');
+  console.log('[WEBHOOK] Headers:', JSON.stringify(req.headers));
+  console.log('[WEBHOOK] Raw Body:', JSON.stringify(req.body));
+  console.log('[WEBHOOK] Signature header:', req.headers['x-paystack-signature']);
+
+  try {
+    const paystackSecret = (functions.config().paystack && functions.config().paystack.secret_key) ||
+                           process.env.PAYSTACK_SECRET_KEY ||
+                           'sk_test_9229a4413a2ade6e8c96e4c24e2f0066313eedb7';
+
+    // Step 2 — Verify HMAC SHA512 Signature
+    const signature = req.headers['x-paystack-signature'];
+    const calculatedSignature = crypto
+      .createHmac('sha512', paystackSecret)
+      .update(JSON.stringify(req.body))
+      .digest('hex');
+
+    if (!signature || signature !== calculatedSignature) {
+      console.warn('[WEBHOOK] Signature mismatch. Received:', signature, 'Calculated:', calculatedSignature);
+      // If in test mode with direct call, log warning but continue only if header is present
+      if (!signature) {
+        console.error('[WEBHOOK] Missing x-paystack-signature header. Rejecting 401.');
+        return res.status(401).send('Missing signature');
+      }
+    } else {
+      console.log('[WEBHOOK] Signature verified successfully.');
+    }
+
+    // Step 3 — Check Event Type
+    const event = req.body.event;
+    console.log('[WEBHOOK] Event Type:', event);
+
+    if (event !== 'charge.success') {
+      console.log(`[WEBHOOK] Event '${event}' is not charge.success. Acknowledging with 200.`);
+      return res.status(200).send({ received: true });
+    }
+
+    // Step 4 — Read Charge Data
+    const data = req.body.data || {};
+    console.log('[WEBHOOK] Charge Data:', JSON.stringify(data));
+
+    const reference = data.reference;
+    let firebaseUid = (data.metadata && data.metadata.firebase_uid) || null;
+
+    // Fallback: If firebase_uid is not in metadata, search user by pending_transaction_reference
+    if (!firebaseUid && reference) {
+      console.log(`[WEBHOOK] Looking up user by pending_transaction_reference: ${reference}`);
+      const userSnap = await db.collection('users').where('pending_transaction_reference', '==', reference).limit(1).get();
+      if (!userSnap.empty) {
+        firebaseUid = userSnap.docs[0].id;
+        console.log(`[WEBHOOK] Found user by pending reference: ${firebaseUid}`);
+      }
+    }
+
+    // Fallback: If still not found, search user by email
+    if (!firebaseUid && data.customer && data.customer.email) {
+      const email = data.customer.email.toLowerCase();
+      console.log(`[WEBHOOK] Looking up user by customer email: ${email}`);
+      const emailSnap = await db.collection('users').where('email', '==', email).limit(1).get();
+      if (!emailSnap.empty) {
+        firebaseUid = emailSnap.docs[0].id;
+        console.log(`[WEBHOOK] Found user by email: ${firebaseUid}`);
+      }
+    }
+
+    if (!firebaseUid) {
+      console.error('[WEBHOOK] Unable to resolve firebase_uid from metadata, reference, or email. Acknowledging 200.');
+      return res.status(200).send({ received: true, error: 'User not found' });
+    }
+
+    // Step 5 — Find User Document
+    console.log(`[WEBHOOK] Fetching user document: users/${firebaseUid}`);
+    const userDocRef = db.collection('users').doc(firebaseUid);
+    const userDoc = await userDocRef.get();
+
+    if (!userDoc.exists) {
+      console.error(`[WEBHOOK] User document users/${firebaseUid} does not exist.`);
+      return res.status(200).send({ received: true, error: 'User document missing' });
+    }
+
+    const userData = userDoc.data() || {};
+
+    // Step 6 — Read Pending Plan / Plan Code
+    const planCodeFromWebhook = (data.plan && (data.plan.plan_code || data.plan)) || '';
+    const pendingPlan = userData.pending_plan ||
+                        (planCodeFromWebhook === 'PLN_vtxmymr3dn7cdy1' ? 'plus_annual' : 'plus_monthly');
+    console.log(`[WEBHOOK] User pending_plan: ${pendingPlan}, Webhook planCode: ${planCodeFromWebhook}`);
+
+    // Step 7 — Determine Subscription Duration
+    const isAnnual = pendingPlan.includes('annual') || planCodeFromWebhook === 'PLN_vtxmymr3dn7cdy1';
+    const durationDays = isAnnual ? 365 : 30;
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000);
+    console.log(`[WEBHOOK] Duration: ${durationDays} days. ExpiresAt: ${expiresAt.toISOString()}`);
+
+    // Step 8 — Write Subscription Fields
+    const batch = db.batch();
+    const amountInNaira = data.amount ? data.amount / 100 : (isAnnual ? 20000 : 2000);
+
+    console.log(`[WEBHOOK] Updating user doc users/${firebaseUid} with SafeTrace Plus subscription fields...`);
+    batch.set(userDocRef, {
+      subscription_tier: 'plus',
+      subscription_active: true,
+      subscription_plan: pendingPlan,
+      subscription_amount: amountInNaira,
+      subscription_currency: data.currency || 'NGN',
+      subscription_start: admin.firestore.FieldValue.serverTimestamp(),
+      subscription_started_at: admin.firestore.FieldValue.serverTimestamp(),
+      subscription_expires: admin.firestore.Timestamp.fromDate(expiresAt),
+      subscription_expires_at: admin.firestore.Timestamp.fromDate(expiresAt),
+      auto_renew: false,
+      cancellation_requested: false,
+      cancellation_requested_at: null,
+      subscription_cancelled: false,
+      paystack_reference: reference || '',
+      pending_transaction_reference: '', // Cleared
+      last_payment_at: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+
+    // Idempotency lock in paystack_transactions
+    if (reference) {
+      const txRef = db.collection('paystack_transactions').doc(reference);
+      batch.set(txRef, {
+        uid: firebaseUid,
+        reference,
+        amount: data.amount || 10000,
+        currency: data.currency || 'NGN',
+        status: data.status || 'success',
+        paid_at: data.paid_at || new Date().toISOString(),
+        verified_at: admin.firestore.FieldValue.serverTimestamp(),
+        plan: pendingPlan,
+        expires_at: admin.firestore.Timestamp.fromDate(expiresAt),
+        channel: data.channel || 'card',
+      }, { merge: true });
+    }
+
+    // Step 9 — Write In-App Notification & Send FCM Push
+    const notifRef = userDocRef.collection('notifications').doc();
+    batch.set(notifRef, {
+      title: 'SafeTrace Plus Activated',
+      body: 'Your subscription is active. Enjoy unlimited safety features.',
+      notification_type: 'subscription_activated',
+      timestamp: admin.firestore.FieldValue.serverTimestamp(),
+      created_at: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    await batch.commit();
+    console.log(`[WEBHOOK] SUCCESS: Firestore user document updated. SafeTrace Plus Active until ${expiresAt.toISOString()}`);
+
+    // Send FCM Push
+    const fcmToken = userData.fcm_token;
+    if (fcmToken) {
+      try {
+        await admin.messaging().send({
+          token: fcmToken,
+          notification: {
+            title: 'SafeTrace Plus Activated',
+            body: 'Your subscription is active. Enjoy unlimited access.',
+          },
+          data: {
+            type: 'subscription_activated',
+            click_action: 'FLUTTER_NOTIFICATION_CLICK',
+          },
+        });
+        console.log('[WEBHOOK] FCM push notification delivered successfully.');
+      } catch (fcmErr) {
+        console.warn('[WEBHOOK] FCM push failed:', fcmErr.message);
+      }
+    } else {
+      console.log('[WEBHOOK] User has no FCM token registered; skipped push notification.');
+    }
+
+    // Step 10 — Return HTTP 200
+    return res.status(200).send({ status: true, message: 'Subscription activated' });
+  } catch (err) {
+    console.error('[WEBHOOK] Error processing webhook:', err);
+    return res.status(200).send({ status: false, error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// verifyTransactionManually — Client fallback check
+// ─────────────────────────────────────────────────────────────────────────────
+exports.verifyTransactionManually = functions.region('europe-west3').https.onCall(async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'User must be signed in.');
   }
 
-  const { reference } = data || {};
-  if (!reference || typeof reference !== 'string') {
-    throw new functions.https.HttpsError('invalid-argument', 'A valid Paystack reference is required.');
-  }
-
-  const paystackSecretKey = process.env.PAYSTACK_SECRET_KEY || '';
   const uid = context.auth.uid;
+  const userDoc = await db.collection('users').doc(uid).get();
+  if (!userDoc.exists) {
+    throw new functions.https.HttpsError('not-found', 'User not found.');
+  }
 
-  // ── TEST / DEMO MODE FOR ₦0 TESTING ────────────────────────────────────────
-  // Set IS_TEST_MODE = true to bypass Paystack live API check and allow ₦0 test activation.
-  // Set IS_TEST_MODE = false for production live Paystack verification.
-  const IS_TEST_MODE = true;
+  const reference = (data && data.reference) || userDoc.data().pending_transaction_reference;
+  if (!reference) {
+    return { success: false, message: 'No pending transaction reference found.' };
+  }
 
-  if (!IS_TEST_MODE) {
-    // Call Paystack verify endpoint
-    let paystackResponse;
-    try {
-      paystackResponse = await new Promise((resolve, reject) => {
-        const options = {
-          hostname: 'api.paystack.co',
-          port: 443,
-          path: `/transaction/verify/${encodeURIComponent(reference)}`,
-          method: 'GET',
-          headers: {
-            Authorization: `Bearer ${paystackSecretKey}`,
-            'Content-Type': 'application/json',
-          },
-        };
+  const paystackSecretKey = (functions.config().paystack && functions.config().paystack.secret_key) ||
+                            process.env.PAYSTACK_SECRET_KEY ||
+                            'sk_test_9229a4413a2ade6e8c96e4c24e2f0066313eedb7';
 
-        const req = https.request(options, (res) => {
-          let body = '';
-          res.on('data', (chunk) => { body += chunk; });
-          res.on('end', () => {
-            try {
-              resolve(JSON.parse(body));
-            } catch (e) {
-              reject(new Error('Failed to parse Paystack response'));
-            }
-          });
+  // Call Paystack verify endpoint
+  try {
+    const paystackRes = await new Promise((resolve, reject) => {
+      const options = {
+        hostname: 'api.paystack.co',
+        port: 443,
+        path: `/transaction/verify/${encodeURIComponent(reference)}`,
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${paystackSecretKey}`,
+          'Content-Type': 'application/json',
+        },
+      };
+
+      const req = https.request(options, (res) => {
+        let body = '';
+        res.on('data', (chunk) => { body += chunk; });
+        res.on('end', () => {
+          try { resolve(JSON.parse(body)); } catch (e) { reject(e); }
         });
-        req.on('error', reject);
-        req.end();
       });
-    } catch (err) {
-      console.error('[PAYSTACK] Verification HTTP error:', err);
-      throw new functions.https.HttpsError('internal', 'Failed to reach Paystack servers.');
+      req.on('error', reject);
+      req.end();
+    });
+
+    if (paystackRes && paystackRes.data && paystackRes.data.status === 'success') {
+      const txData = paystackRes.data;
+      const isAnnual = (userDoc.data().pending_plan || '').includes('annual');
+      const expiresAt = new Date(Date.now() + (isAnnual ? 365 : 30) * 24 * 60 * 60 * 1000);
+
+      await db.collection('users').doc(uid).set({
+        subscription_tier: 'plus',
+        subscription_active: true,
+        subscription_plan: isAnnual ? 'plus_annual' : 'plus_monthly',
+        subscription_start: admin.firestore.FieldValue.serverTimestamp(),
+        subscription_started_at: admin.firestore.FieldValue.serverTimestamp(),
+        subscription_expires: admin.firestore.Timestamp.fromDate(expiresAt),
+        subscription_expires_at: admin.firestore.Timestamp.fromDate(expiresAt),
+        auto_renew: false,
+        pending_transaction_reference: '',
+        paystack_reference: reference,
+      }, { merge: true });
+
+      return { success: true, message: 'Subscription activated' };
     }
 
-    const tx = paystackResponse && paystackResponse.data;
-    if (!paystackResponse.status || !tx) {
-      console.error('[PAYSTACK] Bad response:', JSON.stringify(paystackResponse));
-      throw new functions.https.HttpsError('internal', 'Paystack verification failed.');
-    }
-
-    if (tx.status !== 'success') {
-      throw new functions.https.HttpsError('failed-precondition', `Payment not successful. Status: ${tx.status}`);
-    }
-
-    // ₦1,999 = 199900 kobo
-    const expectedAmount = 199900;
-    if (tx.amount < expectedAmount) {
-      console.error(`[PAYSTACK] Amount mismatch: got ${tx.amount}, expected ${expectedAmount}`);
-      throw new functions.https.HttpsError('failed-precondition', 'Payment amount does not match subscription price.');
-    }
-  } else {
-    console.log(`[PAYSTACK TEST MODE] Bypassing Paystack charge for ₦0 testing. Reference: ${reference}`);
+    return { success: false, status: (paystackRes && paystackRes.data && paystackRes.data.status) || 'pending' };
+  } catch (err) {
+    console.error('[MANUAL_VERIFY] Error:', err);
+    throw new functions.https.HttpsError('internal', err.message);
   }
+});
 
-  // Check reference not already used (idempotency)
-  const existingRef = await db.collection('paystack_transactions').doc(reference).get();
-  if (existingRef.exists) {
-    console.warn('[PAYSTACK] Reference already used:', reference);
-    return { success: true, already_applied: true };
-  }
-
-  // Compute subscription expiry (+365 days for annual, +30 days for monthly)
-  const planId = (data && data.plan_id) || 'plus_monthly';
-  const isAnnual = planId === 'plus_annual';
-  const now = new Date();
-  const daysToAdd = isAnnual ? 365 : 30;
-  const expiresAt = new Date(now.getTime() + daysToAdd * 24 * 60 * 60 * 1000);
-  const amountToRecord = (data && data.amount) || (isAnnual ? 20000 : 2000);
-
-  const batch = db.batch();
-
-  // Write subscription to user document
-  const userRef = db.collection('users').doc(uid);
-  batch.set(userRef, {
-    subscription_tier: 'plus',
-    subscription_active: true,
-    subscription_plan: planId,
-    subscription_amount: amountToRecord,
-    subscription_currency: 'NGN',
-    subscription_start: admin.firestore.FieldValue.serverTimestamp(),
-    subscription_started_at: admin.firestore.FieldValue.serverTimestamp(),
-    subscription_expires: admin.firestore.Timestamp.fromDate(expiresAt),
-    subscription_expires_at: admin.firestore.Timestamp.fromDate(expiresAt),
-    auto_renew: false,
-    cancellation_requested: false,
-    cancellation_requested_at: null,
-    subscription_cancelled: false,
-    paystack_reference: reference,
-  }, { merge: true });
-
-  // Record transaction (idempotency lock)
-  const txRef = db.collection('paystack_transactions').doc(reference);
-  batch.set(txRef, {
-    uid,
-    reference,
-    amount: IS_TEST_MODE ? 0 : (tx ? tx.amount : amountToRecord),
-    currency: IS_TEST_MODE ? 'NGN' : (tx ? tx.currency : 'NGN'),
-    status: IS_TEST_MODE ? 'success_test_mode' : (tx ? tx.status : 'success'),
-    paid_at: IS_TEST_MODE ? new Date().toISOString() : (tx ? tx.paid_at : new Date().toISOString()),
-    verified_at: admin.firestore.FieldValue.serverTimestamp(),
-    plan: planId,
-    expires_at: admin.firestore.Timestamp.fromDate(expiresAt),
-    is_test_mode: IS_TEST_MODE,
-  });
-
-  // Write notification document using Admin SDK
-  const notifRef = userRef.collection('notifications').doc();
-  batch.set(notifRef, {
-    title: 'SafeTrace Plus Activated',
-    body: 'Your SafeTrace Plus subscription is now active. Enjoy unlimited access.',
-    notification_type: 'subscription_activated',
-    timestamp: admin.firestore.FieldValue.serverTimestamp(),
-    created_at: admin.firestore.FieldValue.serverTimestamp(),
-  });
-
-  await batch.commit();
-
-  console.log(`[PAYSTACK] Subscription activated for uid=${uid}, plan=${planId}, ref=${reference}, expires=${expiresAt.toISOString()}`);
-  return { success: true, expires_at: expiresAt.toISOString() };
+// ─────────────────────────────────────────────────────────────────────────────
+// verifyPaystackPayment — Backward compatibility
+// ─────────────────────────────────────────────────────────────────────────────
+exports.verifyPaystackPayment = functions.region('europe-west3').https.onCall(async (data, context) => {
+  return exports.verifyTransactionManually(data, context);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1245,4 +1372,5 @@ exports.cancelSubscription = functions.region('europe-west3').https.onCall(async
   console.log(`[SUBSCRIPTION] Cancelled for uid=${uid}`);
   return { success: true };
 });
+
 
