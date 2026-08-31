@@ -1,10 +1,10 @@
-import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_paystack_plus/flutter_paystack_plus.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import '../constants/subscription_constants.dart';
 import '../../features/profile/screens/subscription_success_screen.dart';
 
@@ -27,63 +27,43 @@ class PaystackService {
   static String generateReference() {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
     final random = Random.secure();
-    final suffix = List.generate(6, (_) => chars[random.nextInt(chars.length)]).join();
+    final suffix =
+        List.generate(6, (_) => chars[random.nextInt(chars.length)]).join();
     return 'ST-${DateTime.now().millisecondsSinceEpoch}-$suffix';
   }
 
-  /// Directly activates the subscription in Firestore after a successful payment.
-  /// This is the single source of truth for subscription activation.
-  static Future<DateTime> _activateSubscription({
-    required String uid,
+  /// Calls the Cloud Function to activate subscription via Admin SDK.
+  /// This bypasses all Firestore security rules.
+  static Future<DateTime> _activateViaCloudFunction({
     required String planId,
     required String reference,
     required int amountInKobo,
   }) async {
-    final isAnnual = planId == 'plus_annual';
-    final expiresAt = DateTime.now().add(Duration(days: isAnnual ? 365 : 30));
+    debugPrint('[PAYSTACK_CF] Calling activateSubscriptionAfterPayment...');
+    debugPrint('[PAYSTACK_CF] Plan: $planId | Ref: $reference');
 
-    debugPrint('[PAYSTACK_ACTIVATE] Writing subscription to Firestore...');
-    debugPrint('[PAYSTACK_ACTIVATE] UID: $uid');
-    debugPrint('[PAYSTACK_ACTIVATE] Plan: $planId');
-    debugPrint('[PAYSTACK_ACTIVATE] Reference: $reference');
-    debugPrint('[PAYSTACK_ACTIVATE] Expires: $expiresAt');
+    final callable = FirebaseFunctions.instanceFor(region: 'europe-west3')
+        .httpsCallable('activateSubscriptionAfterPayment');
 
-    final userDocRef = FirebaseFirestore.instance.collection('users').doc(uid);
+    final result = await callable.call({
+      'planId': planId,
+      'reference': reference,
+      'amountInKobo': amountInKobo,
+    });
 
-    await userDocRef.set({
-      'subscription_tier': 'plus',
-      'subscription_active': true,
-      'subscription_plan': planId,
-      'subscription_amount': amountInKobo ~/ 100,
-      'subscription_currency': 'NGN',
-      'subscription_start': FieldValue.serverTimestamp(),
-      'subscription_started_at': FieldValue.serverTimestamp(),
-      'subscription_expires': Timestamp.fromDate(expiresAt),
-      'subscription_expires_at': Timestamp.fromDate(expiresAt),
-      'auto_renew': false,
-      'cancellation_requested': false,
-      'cancellation_requested_at': null,
-      'subscription_cancelled': false,
-      'paystack_reference': reference,
-      'pending_transaction_reference': '', // cleared
-    }, SetOptions(merge: true));
+    final data = result.data as Map<dynamic, dynamic>;
+    debugPrint('[PAYSTACK_CF] Result: $data');
 
-    debugPrint('[PAYSTACK_ACTIVATE] SUCCESS — subscription_active: true written to Firestore');
-
-    // Write in-app notification
-    try {
-      await userDocRef.collection('notifications').add({
-        'title': 'SafeTrace Plus Activated',
-        'body': 'Your subscription is now active. Enjoy unlimited access.',
-        'notification_type': 'subscription_activated',
-        'timestamp': FieldValue.serverTimestamp(),
-        'created_at': FieldValue.serverTimestamp(),
-      });
-    } catch (e) {
-      debugPrint('[PAYSTACK_ACTIVATE] Notification write warning: $e');
+    if (data['success'] == true) {
+      final expiresIso = data['expiresAt']?.toString();
+      if (expiresIso != null) {
+        return DateTime.parse(expiresIso);
+      }
     }
 
-    return expiresAt;
+    // Fallback: compute expiry locally
+    final isAnnual = planId.contains('annual');
+    return DateTime.now().add(Duration(days: isAnnual ? 365 : 30));
   }
 
   /// Initiates the Paystack checkout flow
@@ -113,7 +93,8 @@ class PaystackService {
       } catch (_) {}
     }
     if (userEmail.isEmpty) {
-      userEmail = '${user.uid.substring(0, min(8, user.uid.length))}@safetrace.app';
+      userEmail =
+          '${user.uid.substring(0, min(8, user.uid.length))}@safetrace.app';
     }
 
     // 2. Determine plan code
@@ -131,7 +112,8 @@ class PaystackService {
     debugPrint('[PAYSTACK] Amount:    $amountInKobo kobo');
     debugPrint('[PAYSTACK] PlanCode:  $planCode');
     debugPrint('[PAYSTACK] Reference: $reference');
-    debugPrint('[PAYSTACK] PublicKey: ${publicKey.substring(0, min(15, publicKey.length))}...');
+    debugPrint(
+        '[PAYSTACK] PublicKey: ${publicKey.substring(0, min(15, publicKey.length))}...');
 
     // 4. Store pending reference & plan in Firestore before popup
     try {
@@ -164,39 +146,45 @@ class PaystackService {
         amount: amountInKobo.toString(),
         reference: reference,
         plan: planCode,
-        callBackUrl: 'https://europe-west3-safetrace-b2aeb.cloudfunctions.net/onSubscriptionPaymentConfirmed',
+        callBackUrl:
+            'https://europe-west3-safetrace-b2aeb.cloudfunctions.net/onSubscriptionPaymentConfirmed',
         onClosed: () {
           debugPrint('[PAYSTACK] Popup closed by user (no payment).');
         },
         onSuccess: () async {
           debugPrint('[PAYSTACK] onSuccess fired! Reference: $reference');
-          debugPrint('[PAYSTACK] Activating subscription directly in Firestore...');
+          debugPrint('[PAYSTACK] Calling Cloud Function to activate subscription...');
 
           try {
-            // ── CRITICAL: Write directly to Firestore immediately on success ──
-            final expiresAt = await _activateSubscription(
-              uid: user.uid,
+            // ── Call Admin SDK Cloud Function — bypasses Firestore rules ──
+            final expiresAt = await _activateViaCloudFunction(
               planId: planId,
               reference: reference,
               amountInKobo: amountInKobo,
             );
 
+            debugPrint('[PAYSTACK] Subscription activated! Expires: $expiresAt');
+
             if (context.mounted) {
-              // Navigate to success screen, clearing the stack
+              // Navigate to success screen, clearing the nav stack
               Navigator.of(context).pushAndRemoveUntil(
                 MaterialPageRoute(
-                  builder: (_) => SubscriptionSuccessScreen(expiryDate: expiresAt),
+                  builder: (_) =>
+                      SubscriptionSuccessScreen(expiryDate: expiresAt),
                 ),
                 (route) => route.isFirst,
               );
             }
           } catch (e) {
-            debugPrint('[PAYSTACK] Error activating subscription after success: $e');
+            debugPrint('[PAYSTACK] Cloud Function activation error: $e');
             if (context.mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: Text('Payment successful but activation failed: $e. Please contact support.'),
-                  duration: const Duration(seconds: 6),
+                  content: Text(
+                    'Payment successful but activation failed: $e\nPlease contact support.',
+                  ),
+                  duration: const Duration(seconds: 8),
+                  backgroundColor: Colors.red[800],
                 ),
               );
             }

@@ -1355,6 +1355,71 @@ exports.verifyPaystackPayment = functions.region('europe-west3').https.onCall(as
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// activateSubscriptionAfterPayment — Called directly from Flutter onSuccess.
+// Uses Admin SDK so it bypasses all Firestore security rules.
+// ─────────────────────────────────────────────────────────────────────────────
+exports.activateSubscriptionAfterPayment = functions.region('europe-west3').https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'User must be signed in.');
+  }
+
+  const uid = context.auth.uid;
+  const { planId, reference, amountInKobo } = data || {};
+
+  if (!planId || !reference) {
+    throw new functions.https.HttpsError('invalid-argument', 'planId and reference are required.');
+  }
+
+  console.log(`[ACTIVATE] Activating subscription for uid=${uid}, plan=${planId}, ref=${reference}`);
+
+  const isAnnual = planId.includes('annual');
+  const expiresAt = new Date(Date.now() + (isAnnual ? 365 : 30) * 24 * 60 * 60 * 1000);
+
+  try {
+    await db.collection('users').doc(uid).set({
+      subscription_tier: 'plus',
+      subscription_active: true,
+      subscription_plan: planId,
+      subscription_amount: amountInKobo ? Math.floor(amountInKobo / 100) : 0,
+      subscription_currency: 'NGN',
+      subscription_start: admin.firestore.FieldValue.serverTimestamp(),
+      subscription_started_at: admin.firestore.FieldValue.serverTimestamp(),
+      subscription_expires: admin.firestore.Timestamp.fromDate(expiresAt),
+      subscription_expires_at: admin.firestore.Timestamp.fromDate(expiresAt),
+      auto_renew: false,
+      cancellation_requested: false,
+      cancellation_requested_at: null,
+      subscription_cancelled: false,
+      paystack_reference: reference,
+      pending_transaction_reference: '',
+    }, { merge: true });
+
+    // Write in-app notification
+    try {
+      await db.collection('users').doc(uid).collection('notifications').add({
+        title: 'SafeTrace Plus Activated',
+        body: 'Your subscription is now active. Enjoy unlimited access.',
+        notification_type: 'subscription_activated',
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        created_at: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    } catch (notifErr) {
+      console.warn(`[ACTIVATE] Notification write warning: ${notifErr.message}`);
+    }
+
+    console.log(`[ACTIVATE] SUCCESS — subscription_active: true written for uid=${uid}`);
+    return {
+      success: true,
+      expiresAt: expiresAt.toISOString(),
+      message: 'Subscription activated successfully.',
+    };
+  } catch (err) {
+    console.error(`[ACTIVATE] ERROR for uid=${uid}:`, err);
+    throw new functions.https.HttpsError('internal', `Activation failed: ${err.message}`);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // cancelSubscription — Mark user subscription as cancelled
 // ─────────────────────────────────────────────────────────────────────────────
 exports.cancelSubscription = functions.region('europe-west3').https.onCall(async (data, context) => {
