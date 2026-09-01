@@ -498,8 +498,23 @@ class _SubscriptionButton extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final sub = ref.watch(currentSubscriptionProvider);
-    final isPlus = sub.isPlus;
+    final docAsync = ref.watch(userDocumentStreamProvider);
+
+    final data = docAsync.valueOrNull?.data();
+    final bool subscriptionActive = data != null &&
+        (data['subscription_active'] == true ||
+            data['subscription_active'].toString().toLowerCase() == 'true');
+    final String subscriptionTier = (data?['subscription_tier'] ?? 'free').toString().toLowerCase().trim();
+
+    final bool isPlus = subscriptionActive && subscriptionTier == 'plus';
+
+    debugPrint(
+      '[PROFILE_BUTTON BUILD] -> '
+      'raw subscription_active: ${data?['subscription_active']}, '
+      'parsed subscriptionActive: $subscriptionActive, '
+      'subscription_tier: "$subscriptionTier" '
+      '=> isPlus: $isPlus',
+    );
 
     if (isPlus) {
       return Material(
@@ -518,7 +533,7 @@ class _SubscriptionButton extends ConsumerWidget {
               border: Border.all(color: const Color(0xFF2E3347)),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.12),
+                  color: Colors.black.withValues(alpha: 0.12),
                   blurRadius: 8,
                   offset: const Offset(0, 3),
                 ),
@@ -530,7 +545,7 @@ class _SubscriptionButton extends ConsumerWidget {
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFF59E0B).withOpacity(0.18),
+                    color: const Color(0xFFF59E0B).withValues(alpha: 0.18),
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(

@@ -130,6 +130,8 @@ class SubscriptionService {
     });
   }
 
+  static SubscriptionInfo parseDocData(Map<String, dynamic> data) => _parseDoc(data);
+
   static SubscriptionInfo _parseDoc(Map<String, dynamic> data) {
     final tier = (data['subscription_tier'] ?? 'free').toString().toLowerCase();
     final active = data['subscription_active'] == true;
