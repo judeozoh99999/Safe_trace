@@ -52,6 +52,9 @@ class _ActivationScreenState extends State<ActivationScreen> {
       }
 
       final userDocRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
+      debugPrint('[ACTIVATION_SCREEN] Current User: $user');
+      debugPrint('[ACTIVATION_SCREEN] User UID: ${user.uid}');
+      debugPrint('[ACTIVATION_SCREEN] Target Document Path: users/${user.uid}');
 
       final subscriptionData = {
         'subscription_tier': 'plus',
