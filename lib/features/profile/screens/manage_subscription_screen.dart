@@ -154,14 +154,30 @@ class _ManageSubscriptionScreenState extends ConsumerState<ManageSubscriptionScr
     setState(() => _isProcessingCancel = true);
 
     try {
+      try {
+        await user.getIdToken(true);
+      } catch (_) {}
+
       // 1. Update user document in Firestore immediately
-      await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+      final cancelData = {
         'subscription_active': false,
         'subscription_tier': 'free',
         'subscription_cancelled': true,
         'subscription_cancelled_at': FieldValue.serverTimestamp(),
         'subscription_expires': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      };
+
+      try {
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .set(cancelData, SetOptions(merge: true));
+      } catch (_) {
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .update(cancelData);
+      }
 
       if (!mounted) return;
 

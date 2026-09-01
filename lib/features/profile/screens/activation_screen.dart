@@ -23,6 +23,7 @@ class _ActivationScreenState extends State<ActivationScreen> {
   }
 
   Future<void> _activateSubscription() async {
+    if (!mounted) return;
     setState(() {
       _isLoading = true;
       _errorMessage = null;
@@ -43,9 +44,16 @@ class _ActivationScreenState extends State<ActivationScreen> {
     final expiresAt = now.add(const Duration(days: 365));
 
     try {
+      // 1. Refresh Auth Token to avoid stale token permission-denied errors
+      try {
+        await user.getIdToken(true);
+      } catch (tokenErr) {
+        debugPrint('[ACTIVATION_SCREEN] Token refresh warning: $tokenErr');
+      }
+
       final userDocRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
 
-      await userDocRef.set({
+      final subscriptionData = {
         'subscription_tier': 'plus',
         'subscription_active': true,
         'subscription_plan': 'free_claim',
@@ -57,9 +65,17 @@ class _ActivationScreenState extends State<ActivationScreen> {
         'subscription_cancelled': false,
         'cancellation_requested': false,
         'cancellation_requested_at': null,
-      }, SetOptions(merge: true));
+      };
 
-      // Notification write (best effort)
+      // 2. Write subscription to Firestore
+      try {
+        await userDocRef.set(subscriptionData, SetOptions(merge: true));
+      } catch (setError) {
+        debugPrint('[ACTIVATION_SCREEN] set() failed, trying update(): $setError');
+        await userDocRef.update(subscriptionData);
+      }
+
+      // 3. Notification write (best effort)
       try {
         await userDocRef.collection('notifications').add({
           'title': 'SafeTrace Plus Activated',
@@ -68,11 +84,13 @@ class _ActivationScreenState extends State<ActivationScreen> {
           'timestamp': FieldValue.serverTimestamp(),
           'created_at': FieldValue.serverTimestamp(),
         });
-      } catch (_) {}
+      } catch (notifErr) {
+        debugPrint('[ACTIVATION_SCREEN] Notification write warning: $notifErr');
+      }
 
       if (!mounted) return;
 
-      // Navigate to Success Screen immediately
+      // 4. Navigate to Success Screen
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
           builder: (_) => SubscriptionSuccessScreen(expiryDate: expiresAt),
@@ -83,7 +101,7 @@ class _ActivationScreenState extends State<ActivationScreen> {
       if (mounted) {
         setState(() {
           _isLoading = false;
-          _errorMessage = 'Something went wrong. Please try again';
+          _errorMessage = 'Activation error: $e\nPlease tap Retry.';
         });
       }
     }
@@ -111,7 +129,7 @@ class _ActivationScreenState extends State<ActivationScreen> {
                         width: 100,
                         height: 100,
                         decoration: BoxDecoration(
-                          color: const Color(0xFFEF4444).withOpacity(0.12),
+                          color: const Color(0xFFEF4444).withValues(alpha: 0.12),
                           shape: BoxShape.circle,
                         ),
                         child: const Center(
@@ -146,7 +164,7 @@ class _ActivationScreenState extends State<ActivationScreen> {
                         width: 80,
                         height: 80,
                         decoration: BoxDecoration(
-                          color: const Color(0xFFEF4444).withOpacity(0.12),
+                          color: const Color(0xFFEF4444).withValues(alpha: 0.12),
                           shape: BoxShape.circle,
                         ),
                         child: const Icon(
@@ -160,9 +178,10 @@ class _ActivationScreenState extends State<ActivationScreen> {
                         _errorMessage ?? 'Something went wrong. Please try again',
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
                           color: headingColor,
+                          height: 1.4,
                         ),
                       ),
                       const SizedBox(height: 28),
