@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'profile_detail_screens.dart';
-import 'safetrace_plus_screen.dart';
-import 'plan_selection_screen.dart';
+import 'claim_plus_screen.dart';
 import 'manage_subscription_screen.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../location/providers/home_provider.dart';
@@ -151,7 +150,7 @@ class ProfileScreen extends ConsumerWidget {
                           // SafeTrace Plus / Active button
                           _SubscriptionButton(
                             onPressed: () {
-                              Navigator.of(context).push(_createRoute(const PlanSelectionScreen()));
+                              Navigator.of(context).push(_createRoute(const ClaimPlusScreen()));
                             },
                           ),
                         ],
@@ -492,7 +491,7 @@ class ProfileScreen extends ConsumerWidget {
   }
 }
 
-// ── Subscription-aware button (green when Plus, red pulsing when Free) ────────
+// ── Subscription-aware button (Active card when Plus, red pulsing when Free) ────────
 class _SubscriptionButton extends ConsumerWidget {
   final VoidCallback onPressed;
   const _SubscriptionButton({required this.onPressed});
@@ -501,81 +500,88 @@ class _SubscriptionButton extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final sub = ref.watch(currentSubscriptionProvider);
     final isPlus = sub.isPlus;
-    debugPrint('[PROFILE_SCREEN] _SubscriptionButton build -> isPlus: $isPlus, tier: ${sub.tier}, isActive: ${sub.isActive}, expiresAt: ${sub.expiresAt}');
-    debugPrint('[PROFILE_SCREEN] Rendering widget: ${isPlus ? "SafeTrace Plus Active Card" : "Get SafeTrace Plus Pulsing Button"}');
 
     if (isPlus) {
-      final formattedExpiry = sub.formattedExpiry;
-
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: const Color(0xFF1A1D27), // Dark navy
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFF2E3347)),
-        ),
-        child: Column(
-          children: [
-            Row(
+      return Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () {
+            Navigator.of(context).push(_createRoute(const ManageSubscriptionScreen()));
+          },
+          borderRadius: BorderRadius.circular(14),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1A1A2E), // Dark navy #1A1A2E
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xFF2E3347)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.12),
+                  blurRadius: 8,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            child: Row(
               children: [
+                // Gold star / verified icon on left
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFF59E0B).withOpacity(0.15), // Gold badge icon
+                    color: const Color(0xFFF59E0B).withOpacity(0.18),
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(Icons.star_rounded, color: Color(0xFFF59E0B), size: 20),
+                  child: const Icon(
+                    Icons.star_rounded,
+                    color: Color(0xFFF59E0B),
+                    size: 20,
+                  ),
                 ),
                 const SizedBox(width: 12),
+
+                // Text: SafeTrace Plus Active & Active — Free Plan
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
+                    children: const [
+                      Text(
                         'SafeTrace Plus Active',
                         style: TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.w900,
-                          fontSize: 15,
+                          fontSize: 16,
                         ),
                       ),
-                      const SizedBox(height: 2),
+                      SizedBox(height: 2),
                       Text(
-                        'Active until $formattedExpiry',
-                        style: const TextStyle(
+                        'Active — Free Plan',
+                        style: TextStyle(
                           color: Color(0xFF9CA3AF),
                           fontSize: 12,
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
                     ],
                   ),
                 ),
+
+                // Settings icon on right
+                IconButton(
+                  icon: const Icon(
+                    Icons.settings_outlined,
+                    color: Colors.white,
+                    size: 22,
+                  ),
+                  onPressed: () {
+                    Navigator.of(context).push(_createRoute(const ManageSubscriptionScreen()));
+                  },
+                  tooltip: 'Manage Subscription',
+                ),
               ],
             ),
-            const SizedBox(height: 14),
-            SizedBox(
-              width: double.infinity,
-              height: 38,
-              child: OutlinedButton(
-                style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: Colors.white),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-                onPressed: () {
-                  Navigator.of(context).push(_createRoute(const ManageSubscriptionScreen()));
-                },
-                child: const Text(
-                  'Manage Subscription',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 13,
-                  ),
-                ),
-              ),
-            ),
-          ],
+          ),
         ),
       );
     }

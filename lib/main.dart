@@ -18,8 +18,6 @@ void main() async {
   // Load environment variables gracefully
   try {
     await dotenv.load(fileName: ".env");
-    final paystackPublicKey = dotenv.env['PAYSTACK_PUBLIC_KEY_TEST'] ?? dotenv.env['PAYSTACK_PUBLIC_KEY'] ?? '';
-    debugPrint('[PAYSTACK_INIT] Public Key Loaded: ${paystackPublicKey.length >= 10 ? paystackPublicKey.substring(0, 10) : paystackPublicKey}...');
   } catch (e) {
     debugPrint("Warning: .env file not found or empty. Using default configurations.");
   }

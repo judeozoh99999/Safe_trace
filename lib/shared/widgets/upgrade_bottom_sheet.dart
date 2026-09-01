@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../features/profile/screens/plan_selection_screen.dart';
+import '../../features/wallet/screens/claim_plus_screen.dart';
 
 class UpgradeBottomSheet extends StatelessWidget {
   final String message;
@@ -103,9 +103,9 @@ class UpgradeBottomSheet extends StatelessWidget {
           ),
           const SizedBox(height: 12),
 
-          // Pricing line
+          // Free claim line
           const Text(
-            'From ₦2,000 per month',
+            'Free Claim — No payment required',
             style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w600,
@@ -127,7 +127,7 @@ class UpgradeBottomSheet extends StatelessWidget {
               onPressed: () {
                 Navigator.pop(context);
                 Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const PlanSelectionScreen()),
+                  MaterialPageRoute(builder: (_) => const ClaimPlusScreen()),
                 );
               },
               child: const Text(

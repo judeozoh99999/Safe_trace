@@ -30,8 +30,6 @@ dependencies:
   # HTTP Client
   dio: ^5.5.0
 
-  # Payments
-  flutter_paystack_plus: ^2.5.0
 
   # Environment Variables
   flutter_dotenv: ^5.1.1

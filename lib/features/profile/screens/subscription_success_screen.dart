@@ -1,32 +1,34 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import '../../../core/constants/subscription_constants.dart';
-import '../../../core/services/subscription_service.dart';
 
 class SubscriptionSuccessScreen extends StatelessWidget {
-  final DateTime expiryDate;
+  final DateTime? expiryDate;
 
   const SubscriptionSuccessScreen({
     super.key,
-    required this.expiryDate,
+    this.expiryDate,
   });
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final formattedDate = SubscriptionInfo.formatDayMonthYear(expiryDate);
+    final bgColor = isDark ? const Color(0xFF0F1117) : const Color(0xFFF9FAFB);
+    final cardBg = isDark ? const Color(0xFF1A1D27) : Colors.white;
+    final headingColor = isDark ? Colors.white : const Color(0xFF111827);
+    final subtextColor = isDark ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280);
+    final borderColor = isDark ? const Color(0xFF2E3347) : const Color(0xFFE5E7EB);
 
     final features = const [
       'Panic alerts to all 5 trusted contacts',
       'Unlimited location logging',
       'Route intelligence with AI safety summary',
-      'Full Audio Sentinel with speech detection',
-      'Nearby Alert — initiate connections',
+      'Full Audio Sentinel with speech threat detection',
+      'Nearby Alert — initiate and unlimited connections',
       'Family map and journey monitoring',
     ];
 
     return Scaffold(
-      backgroundColor: isDark ? const Color(0xFF0F1117) : const Color(0xFFF9FAFB),
+      backgroundColor: bgColor,
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
@@ -59,9 +61,9 @@ class SubscriptionSuccessScreen extends StatelessWidget {
                 'SafeTrace Plus Active',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  fontSize: 26,
+                  fontSize: 22,
                   fontWeight: FontWeight.w900,
-                  color: isDark ? Colors.white : const Color(0xFF0F172A),
+                  color: headingColor,
                 ),
               ).animate().fadeIn(delay: 200.ms).slideY(begin: 0.2, end: 0),
 
@@ -69,12 +71,12 @@ class SubscriptionSuccessScreen extends StatelessWidget {
 
               // Body text
               Text(
-                'Welcome to SafeTrace Plus. Your subscription is active until $formattedDate.',
+                'Welcome to SafeTrace Plus. Your subscription is active and will never expire unless you cancel',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 14,
                   height: 1.4,
-                  color: isDark ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280),
+                  color: subtextColor,
                 ),
               ).animate().fadeIn(delay: 300.ms),
 
@@ -85,11 +87,17 @@ class SubscriptionSuccessScreen extends StatelessWidget {
                 width: double.infinity,
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: isDark ? const Color(0xFF1A1D27) : Colors.white,
+                  color: cardBg,
                   borderRadius: BorderRadius.circular(18),
-                  border: Border.all(
-                    color: isDark ? const Color(0xFF2E3347) : const Color(0xFFE5E7EB),
-                  ),
+                  border: Border.all(color: borderColor),
+                  boxShadow: [
+                    if (!isDark)
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.03),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                  ],
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -100,7 +108,7 @@ class SubscriptionSuccessScreen extends StatelessWidget {
                         fontSize: 11,
                         fontWeight: FontWeight.w900,
                         letterSpacing: 1.0,
-                        color: isDark ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280),
+                        color: subtextColor,
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -127,7 +135,7 @@ class SubscriptionSuccessScreen extends StatelessWidget {
                                   style: TextStyle(
                                     fontSize: 13,
                                     fontWeight: FontWeight.w600,
-                                    color: isDark ? Colors.white : const Color(0xFF111827),
+                                    color: headingColor,
                                   ),
                                 ),
                               ),
@@ -151,7 +159,7 @@ class SubscriptionSuccessScreen extends StatelessWidget {
                     elevation: 0,
                   ),
                   onPressed: () {
-                    // Navigate to root / clear stack
+                    // Navigate to root / clear entire stack
                     Navigator.of(context).popUntil((route) => route.isFirst);
                   },
                   child: const Text(
@@ -165,21 +173,7 @@ class SubscriptionSuccessScreen extends StatelessWidget {
                 ),
               ),
 
-              // ── Test Mode Label at very bottom ──
-              if (SUBSCRIPTION_TEST_MODE) ...[
-                const SizedBox(height: 12),
-                Text(
-                  'Test Mode — Subscription activated without payment',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: isDark ? const Color(0xFF6B7280) : const Color(0xFF9CA3AF),
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
             ],
           ),
         ),

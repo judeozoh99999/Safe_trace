@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
@@ -9,8 +8,8 @@ import '../../../core/services/speech_sentinel_service.dart';
 import '../../../shared/widgets/custom_buttons.dart';
 import '../../../shared/widgets/safetrace_app_bar.dart';
 import '../../../core/providers/subscription_provider.dart';
-import '../../profile/screens/plan_selection_screen.dart';
 import '../providers/sentinel_provider.dart';
+import '../../wallet/screens/claim_plus_screen.dart';
 
 class WatchModeScreen extends ConsumerStatefulWidget {
   const WatchModeScreen({super.key});
@@ -103,10 +102,10 @@ class _WatchModeScreenState extends ConsumerState<WatchModeScreen> with SingleTi
               ref.read(sentinelProvider.notifier).dismissUpgradeModal();
               Navigator.pop(context);
               Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const PlanSelectionScreen()),
+                MaterialPageRoute(builder: (_) => const ClaimPlusScreen()),
               );
             },
-            child: const Text("Upgrade Now", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            child: const Text("Unlock Now", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
           ),
         ],
       ),

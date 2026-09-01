@@ -5,7 +5,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../core/constants/subscription_constants.dart';
 import '../../../core/providers/subscription_provider.dart';
 import '../../../core/services/subscription_service.dart';
-import 'plan_selection_screen.dart';
 
 class ManageSubscriptionScreen extends ConsumerStatefulWidget {
   const ManageSubscriptionScreen({super.key});
@@ -17,23 +16,38 @@ class ManageSubscriptionScreen extends ConsumerStatefulWidget {
 class _ManageSubscriptionScreenState extends ConsumerState<ManageSubscriptionScreen> {
   bool _isProcessingCancel = false;
 
-  void _showCancelConfirmationSheet(SubscriptionInfo sub) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final expiryFormatted = sub.formattedExpiry;
+  void _showCancelConfirmationSheet(BuildContext parentContext) {
+    final isDark = Theme.of(parentContext).brightness == Brightness.dark;
+    final cardBg = isDark ? const Color(0xFF1A1D27) : Colors.white;
+    final titleColor = isDark ? Colors.white : const Color(0xFF111827);
+    final bodyColor = isDark ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280);
 
     showModalBottomSheet(
-      context: context,
-      backgroundColor: isDark ? const Color(0xFF1A1D27) : Colors.white,
+      context: parentContext,
+      backgroundColor: cardBg,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (ctx) {
         return SafeArea(
           child: Padding(
-            padding: const EdgeInsets.all(24.0),
+            padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 20.0),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                // Drag handle pill
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.withOpacity(0.4),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+
                 // Warning Icon in Amber
                 Container(
                   padding: const EdgeInsets.all(12),
@@ -49,32 +63,31 @@ class _ManageSubscriptionScreenState extends ConsumerState<ManageSubscriptionScr
                 ),
                 const SizedBox(height: 16),
 
-                // Title
+                // Title: Cancel SafeTrace Plus
                 Text(
-                  'Are you sure you want to cancel?',
+                  'Cancel SafeTrace Plus',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w900,
-                    color: isDark ? Colors.white : const Color(0xFF111827),
+                    color: titleColor,
                   ),
                 ),
                 const SizedBox(height: 10),
 
-                // Body
+                // Body text
                 Text(
-                  'Your SafeTrace Plus access will end on $expiryFormatted. You will lose access to all Plus features after that date. No refund will be issued for the current period.',
+                  'Are you sure you want to cancel SafeTrace Plus? You will lose access to all Plus features immediately. You can reclaim it for free at any time.',
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    fontSize: 13,
+                    fontSize: 13.5,
                     height: 1.4,
-                    color: isDark ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280),
+                    color: bodyColor,
                   ),
                 ),
                 const SizedBox(height: 24),
 
-                // Buttons
-                // 1. Keep My Subscription (Accent Red)
+                // Button 1: Keep SafeTrace Plus (Accent Red)
                 SizedBox(
                   width: double.infinity,
                   height: 48,
@@ -86,7 +99,7 @@ class _ManageSubscriptionScreenState extends ConsumerState<ManageSubscriptionScr
                     ),
                     onPressed: () => Navigator.of(ctx).pop(),
                     child: const Text(
-                      'Keep My Subscription',
+                      'Keep SafeTrace Plus',
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: 15,
@@ -98,7 +111,7 @@ class _ManageSubscriptionScreenState extends ConsumerState<ManageSubscriptionScr
 
                 const SizedBox(height: 10),
 
-                // 2. Cancel Subscription (Outlined Grey)
+                // Button 2: Cancel Subscription (Outlined Grey)
                 SizedBox(
                   width: double.infinity,
                   height: 48,
@@ -113,7 +126,7 @@ class _ManageSubscriptionScreenState extends ConsumerState<ManageSubscriptionScr
                         ? null
                         : () async {
                             Navigator.of(ctx).pop();
-                            await _performCancellation(sub);
+                            await _performCancellation();
                           },
                     child: Text(
                       'Cancel Subscription',
@@ -125,6 +138,7 @@ class _ManageSubscriptionScreenState extends ConsumerState<ManageSubscriptionScr
                     ),
                   ),
                 ),
+                const SizedBox(height: 8),
               ],
             ),
           ),
@@ -133,78 +147,74 @@ class _ManageSubscriptionScreenState extends ConsumerState<ManageSubscriptionScr
     );
   }
 
-  Future<void> _performCancellation(SubscriptionInfo sub) async {
+  Future<void> _performCancellation() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
     setState(() => _isProcessingCancel = true);
 
     try {
-      final now = DateTime.now();
+      // 1. Update user document in Firestore immediately
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+        'subscription_active': false,
+        'subscription_tier': 'free',
+        'subscription_cancelled': true,
+        'subscription_cancelled_at': FieldValue.serverTimestamp(),
+        'subscription_expires': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
 
-      // 1. Update user document in Firestore
-      final Map<String, dynamic> updateData = {
-        'cancellation_requested': true,
-        'cancellation_requested_at': FieldValue.serverTimestamp(),
-        'auto_renew': false,
-      };
+      if (!mounted) return;
 
-      if (SUBSCRIPTION_TEST_MODE) {
-        updateData['subscription_cancelled'] = true;
-      }
+      // 2. Navigate back to Profile screen
+      Navigator.of(context).pop();
 
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .set(updateData, SetOptions(merge: true));
-
-      // 2. Write notification document
-      final expiryFormatted = sub.formattedExpiry;
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .collection('notifications')
-          .add({
-        'title': 'Subscription Cancelled',
-        'body': 'Your SafeTrace Plus subscription has been cancelled. You have access until $expiryFormatted.',
-        'notification_type': 'subscription_cancelled',
-        'timestamp': FieldValue.serverTimestamp(),
-        'created_at': FieldValue.serverTimestamp(),
-      });
-
+      // 3. Show brief snackbar on Profile screen
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('SafeTrace Plus has been cancelled. You can reclaim it anytime.'),
+          backgroundColor: Color(0xFF1F2937),
+          duration: Duration(seconds: 4),
+        ),
+      );
+    } catch (e) {
+      debugPrint('[CANCEL_SUBSCRIPTION] Error cancelling: $e');
       if (mounted) {
+        setState(() => _isProcessingCancel = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Subscription cancelled. Access ends on $expiryFormatted.'),
-            behavior: SnackBarBehavior.floating,
+            content: Text('Failed to cancel: $e'),
+            backgroundColor: const Color(0xFFEF4444),
           ),
         );
       }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error cancelling subscription: $e')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isProcessingCancel = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final sub = ref.watch(currentSubscriptionProvider);
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final subAsync = ref.watch(subscriptionProvider);
+    final bgColor = isDark ? const Color(0xFF0F1117) : const Color(0xFFF9FAFB);
+    final cardBg = isDark ? const Color(0xFF1A1D27) : Colors.white;
+    final headingColor = isDark ? Colors.white : const Color(0xFF111827);
+    final subtextColor = isDark ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280);
+    final borderColor = isDark ? const Color(0xFF2E3347) : const Color(0xFFE5E7EB);
+
+    final activeSinceStr = sub.startedAt != null
+        ? SubscriptionInfo.formatDayMonthYear(sub.startedAt!)
+        : SubscriptionInfo.formatDayMonthYear(DateTime.now());
+
+    final features = SubscriptionConstants.plusFeatures;
 
     return Scaffold(
-      backgroundColor: isDark ? const Color(0xFF0F1117) : const Color(0xFFF9FAFB),
+      backgroundColor: bgColor,
       appBar: AppBar(
-        backgroundColor: isDark ? const Color(0xFF0F1117) : Colors.white,
+        backgroundColor: bgColor,
         elevation: 0,
         leading: IconButton(
           icon: Icon(
             Icons.arrow_back_ios_new_rounded,
-            color: isDark ? Colors.white : const Color(0xFF111827),
+            color: headingColor,
             size: 20,
           ),
           onPressed: () => Navigator.of(context).pop(),
@@ -214,336 +224,250 @@ class _ManageSubscriptionScreenState extends ConsumerState<ManageSubscriptionScr
           style: TextStyle(
             fontSize: 18,
             fontWeight: FontWeight.w900,
-            color: isDark ? Colors.white : const Color(0xFF111827),
+            color: headingColor,
           ),
         ),
       ),
-      body: subAsync.when(
-        data: (sub) => _buildBody(context, isDark, sub),
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (err, stack) => Center(child: Text('Error loading subscription details: $err')),
-      ),
-    );
-  }
-
-  Widget _buildBody(BuildContext context, bool isDark, SubscriptionInfo sub) {
-    final planTitle = sub.planName ?? 'SafeTrace Plus Monthly';
-    final isCancelled = sub.cancellationRequested;
-    final expiryFormatted = sub.formattedExpiry;
-    final startFormatted = sub.formattedStart;
-
-    final benefits = const [
-      'Panic alerts to all 5 trusted contacts',
-      'Unlimited location logging',
-      'Route intelligence & AI safety summary',
-      'Full Audio Sentinel speech detection',
-      'Nearby Alert connection initiation',
-      'Family map & journey monitoring',
-    ];
-
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // ── 1. Subscription Status Card ──
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: isDark ? const Color(0xFF1A1D27) : Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: isDark ? const Color(0xFF2E3347) : const Color(0xFFE5E7EB),
-                ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Expanded(
-                        child: Text(
-                          planTitle,
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w900,
-                            color: isDark ? Colors.white : const Color(0xFF111827),
-                          ),
-                        ),
-                      ),
-
-                      // Status Badge
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: isCancelled
-                              ? const Color(0xFFF59E0B).withOpacity(0.15)
-                              : const Color(0xFF16A34A).withOpacity(0.15),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              width: 6,
-                              height: 6,
-                              decoration: BoxDecoration(
-                                color: isCancelled ? const Color(0xFFF59E0B) : const Color(0xFF16A34A),
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              isCancelled ? 'Cancelled' : 'Active',
-                              style: TextStyle(
-                                color: isCancelled ? const Color(0xFFF59E0B) : const Color(0xFF4ADE80),
-                                fontSize: 12,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 16),
-                  const Divider(height: 1, color: Color(0xFF2E3347)),
-                  const SizedBox(height: 16),
-
-                  _buildDetailRow('Start Date', startFormatted, isDark),
-                  const SizedBox(height: 10),
-                  _buildDetailRow('Expiry Date', expiryFormatted, isDark),
-                  const SizedBox(height: 10),
-                  _buildDetailRow('Billing Type', 'Manual Transfer', isDark),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 24),
-
-            // ── 2. Plan Benefits Section ──
-            Text(
-              'Included Benefits',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w800,
-                color: isDark ? Colors.white : const Color(0xFF111827),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: isDark ? const Color(0xFF1A1D27) : Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: isDark ? const Color(0xFF2E3347) : const Color(0xFFE5E7EB),
-                ),
-              ),
-              child: Column(
-                children: benefits
-                    .map((item) => Padding(
-                          padding: const EdgeInsets.only(bottom: 10.0),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.check_circle_rounded, color: Color(0xFF16A34A), size: 18),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Text(
-                                  item,
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w600,
-                                    color: isDark ? Colors.white : const Color(0xFF111827),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ))
-                    .toList(),
-              ),
-            ),
-
-            const SizedBox(height: 24),
-
-            // ── 3. Renewal Section ──
-            Text(
-              'Renewal',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w800,
-                color: isDark ? Colors.white : const Color(0xFF111827),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: isDark ? const Color(0xFF12141C) : const Color(0xFFF3F4F6),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Text(
-                'Your subscription does not auto-renew. You will receive a reminder 7 days before it expires. To continue your subscription simply make another transfer when prompted.',
-                style: TextStyle(
-                  fontSize: 13,
-                  height: 1.4,
-                  color: isDark ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280),
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 28),
-
-            // ── 4. Danger Zone / Cancel / Resubscribe Section ──
-            if (!isCancelled) ...[
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // ── Status Card at Top ──
               Container(
-                padding: const EdgeInsets.all(18),
+                width: double.infinity,
+                padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: isDark ? const Color(0xFF1A1D27) : Colors.white,
+                  color: const Color(0xFF1A1A2E), // Dark navy
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: const Color(0xFFEF4444).withOpacity(0.3),
-                    width: 1.5,
-                  ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Danger Zone',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w800,
-                        color: isDark ? Colors.white : const Color(0xFF111827),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-
-                    SizedBox(
-                      width: double.infinity,
-                      height: 46,
-                      child: OutlinedButton.icon(
-                        style: OutlinedButton.styleFrom(
-                          side: const BorderSide(color: Color(0xFFEF4444)),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                        onPressed: () => _showCancelConfirmationSheet(sub),
-                        icon: const Icon(Icons.warning_amber_rounded, color: Color(0xFFEF4444), size: 18),
-                        label: const Text(
-                          'Cancel Subscription',
-                          style: TextStyle(
-                            color: Color(0xFFEF4444),
-                            fontSize: 14,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ),
-                    ),
-
-                    const SizedBox(height: 10),
-                    Text(
-                      'Cancelling will end your access at the current expiry date. You will not receive a refund.',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: isDark ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280),
-                      ),
+                  border: Border.all(color: const Color(0xFF2E3347)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.1),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
                     ),
                   ],
-                ),
-              ),
-            ] else ...[
-              // Cancellation Confirmation Card + Resubscribe Button
-              Container(
-                padding: const EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  color: isDark ? const Color(0xFF1A1D27) : Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: isDark ? const Color(0xFF374151) : const Color(0xFFD1D5DB),
-                    width: 1.5,
-                  ),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
                       children: [
-                        const Icon(Icons.calendar_today_rounded, color: Color(0xFFF59E0B), size: 20),
+                        Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF59E0B).withOpacity(0.2),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.star_rounded,
+                            color: Color(0xFFF59E0B),
+                            size: 20,
+                          ),
+                        ),
                         const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            'Subscription cancelled. Access ends on $expiryFormatted.',
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
-                              color: isDark ? Colors.white : const Color(0xFF111827),
-                            ),
+                        const Text(
+                          'SafeTrace Plus Active',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w900,
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 14),
-
-                    // Resubscribe Button in Outlined Red
-                    SizedBox(
-                      width: double.infinity,
-                      height: 46,
-                      child: OutlinedButton(
-                        style: OutlinedButton.styleFrom(
-                          side: const BorderSide(color: Color(0xFFEF4444), width: 1.5),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                        onPressed: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => const PlanSelectionScreen(),
-                            ),
-                          );
-                        },
-                        child: const Text(
-                          'Resubscribe',
-                          style: TextStyle(
-                            color: Color(0xFFEF4444),
-                            fontSize: 14,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Free Claim',
+                      style: TextStyle(
+                        color: Color(0xFF9CA3AF),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Active since $activeSinceStr',
+                      style: const TextStyle(
+                        color: Color(0xFF6B7280),
+                        fontSize: 12,
                       ),
                     ),
                   ],
                 ),
               ),
-            ],
 
-            const SizedBox(height: 24),
-          ],
+              const SizedBox(height: 24),
+
+              // ── Plan Benefits Section ──
+              Text(
+                'Plan Benefits',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  color: headingColor,
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: cardBg,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: borderColor),
+                ),
+                child: Column(
+                  children: features.map((f) {
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 6.0),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(3),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFEF4444).withOpacity(0.12),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.check_rounded,
+                              size: 13,
+                              color: Color(0xFFEF4444),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              f,
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: headingColor,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+
+              const SizedBox(height: 24),
+
+              // ── About Your Plan Section ──
+              Text(
+                'About Your Plan',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  color: headingColor,
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: cardBg,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: borderColor),
+                ),
+                child: Column(
+                  children: [
+                    _buildInfoRow('Plan Type', 'Free Claim', headingColor, subtextColor),
+                    Divider(color: borderColor, height: 20),
+                    _buildInfoRow('Billing', 'None — No payment required', headingColor, subtextColor),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 28),
+
+              // ── Danger Zone Section ──
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF1E1417) : const Color(0xFFFEF2F2),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: const Color(0xFFEF4444).withOpacity(0.3),
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: Color(0xFFEF4444), width: 1.5),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onPressed: _isProcessingCancel
+                            ? null
+                            : () => _showCancelConfirmationSheet(context),
+                        icon: const Icon(
+                          Icons.warning_amber_rounded,
+                          color: Color(0xFFEF4444),
+                          size: 20,
+                        ),
+                        label: const Text(
+                          'Cancel SafeTrace Plus',
+                          style: TextStyle(
+                            color: Color(0xFFEF4444),
+                            fontWeight: FontWeight.w800,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Cancelling will remove your Plus features immediately.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: subtextColor,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 20),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildDetailRow(String label, String value, bool isDark) {
+  Widget _buildInfoRow(String label, String value, Color textColor, Color subColor) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(
           label,
           style: TextStyle(
-            fontSize: 13,
-            color: isDark ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280),
+            fontSize: 13.5,
+            fontWeight: FontWeight.w600,
+            color: subColor,
           ),
         ),
         Text(
           value,
           style: TextStyle(
-            fontSize: 13,
+            fontSize: 13.5,
             fontWeight: FontWeight.w700,
-            color: isDark ? Colors.white : const Color(0xFF111827),
+            color: textColor,
           ),
         ),
       ],

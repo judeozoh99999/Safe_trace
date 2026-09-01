@@ -7,12 +7,11 @@ class SubscriptionInfo {
   final bool isActive;
   final DateTime? expiresAt;
   final DateTime? startedAt;
-  final String? planId; // 'plus_monthly' or 'plus_annual'
+  final String? planId; // 'free_claim'
   final String? planName;
   final bool cancellationRequested;
   final DateTime? cancellationRequestedAt;
   final bool autoRenew;
-  final String? paystackReference;
   final int? amount;
   final int locationLogsThisMonth;
 
@@ -26,23 +25,22 @@ class SubscriptionInfo {
     this.cancellationRequested = false,
     this.cancellationRequestedAt,
     this.autoRenew = false,
-    this.paystackReference,
     this.amount,
     this.locationLogsThisMonth = 0,
   });
 
-  /// Section 4: isPlus returns true ONLY when subscription_active is boolean true
-  /// AND subscription_tier is string plus AND subscription_expires is in the future.
+  /// isPlus returns true ONLY when subscription_active is boolean true
+  /// AND subscription_tier is string 'plus' AND subscription_expires is in the future.
   bool get isPlus =>
       tier == 'plus' &&
       isActive &&
       expiresAt != null &&
       expiresAt!.isAfter(DateTime.now());
 
-  /// Section 4: isFree returns true when isPlus is false.
+  /// isFree returns true when isPlus is false.
   bool get isFree => !isPlus;
 
-  /// Section 4: locationLogsRemainingThisMonth returns (10 - location_logs_this_month) for free users.
+  /// locationLogsRemainingThisMonth returns (10 - location_logs_this_month) for free users.
   /// For Plus users returns null (unlimited).
   int? get locationLogsRemainingThisMonth {
     if (isPlus) return null; // Unlimited for Plus users
@@ -50,13 +48,13 @@ class SubscriptionInfo {
     return remaining < 0 ? 0 : remaining;
   }
 
-  /// Section 4: trustedContactsLimit returns 3 for free users, 5 for Plus users.
+  /// trustedContactsLimit returns 3 for free users, 5 for Plus users.
   int get trustedContactsLimit => isPlus ? 5 : 3;
 
-  /// Section 4: locationHistoryDays returns 7 for free users, 90 for Plus users.
+  /// locationHistoryDays returns 7 for free users, 90 for Plus users.
   int get locationHistoryDays => isPlus ? 90 : 7;
 
-  /// Section 4: recentActivityLimit returns 5 for free users, 100 for Plus users.
+  /// recentActivityLimit returns 5 for free users, 100 for Plus users.
   int get recentActivityLimit => isPlus ? 100 : 5;
 
   static const free = SubscriptionInfo(tier: 'free', isActive: false);
@@ -154,10 +152,8 @@ class SubscriptionService {
 
     final rawPlan = data['subscription_plan']?.toString();
     String? planName;
-    if (rawPlan == 'plus_annual' || rawPlan == 'SafeTrace Plus Annual') {
-      planName = 'SafeTrace Plus Annual';
-    } else if (rawPlan == 'plus_monthly' || rawPlan == 'SafeTrace Plus Monthly') {
-      planName = 'SafeTrace Plus Monthly';
+    if (rawPlan == 'free_claim' || rawPlan == 'SafeTrace Plus') {
+      planName = 'SafeTrace Plus';
     } else if (rawPlan != null && rawPlan.isNotEmpty) {
       planName = rawPlan;
     }
@@ -183,12 +179,11 @@ class SubscriptionService {
       isActive: isActuallyActive,
       expiresAt: expiresAt,
       startedAt: startedAt,
-      planId: rawPlan,
-      planName: planName,
+      planId: rawPlan ?? 'free_claim',
+      planName: planName ?? 'SafeTrace Plus',
       cancellationRequested: cancellationRequested,
       cancellationRequestedAt: cancellationRequestedAt,
       autoRenew: autoRenew,
-      paystackReference: data['paystack_reference'],
       amount: data['subscription_amount'] is int
           ? data['subscription_amount'] as int
           : int.tryParse(data['subscription_amount']?.toString() ?? ''),
@@ -196,7 +191,7 @@ class SubscriptionService {
     );
   }
 
-  /// Legacy helper used by SentinelProvider etc.
+  /// Helper used by SentinelProvider etc.
   static Future<String> getUserTier() async {
     final info = await getSubscriptionInfo();
     return info.tier;

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/providers/subscription_provider.dart';
-import 'plan_selection_screen.dart';
+import 'claim_plus_screen.dart';
 import 'manage_subscription_screen.dart';
 
 class SafeTracePlusScreen extends ConsumerWidget {
@@ -16,6 +16,6 @@ class SafeTracePlusScreen extends ConsumerWidget {
       return const ManageSubscriptionScreen();
     }
 
-    return const PlanSelectionScreen();
+    return const ClaimPlusScreen();
   }
 }

@@ -253,7 +253,7 @@ class WalletScreen extends ConsumerWidget {
     );
   }
 
-  // Paystack topup modal
+  // Wallet topup modal
   void _showTopUpSheet(BuildContext context, WalletNotifier notifier, bool isDark) {
     final amountController = TextEditingController();
 
@@ -288,7 +288,7 @@ class WalletScreen extends ConsumerWidget {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text(
-                        "Paystack Wallet Deposit",
+                        "Wallet Deposit",
                         style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                       ),
                       IconButton(
@@ -334,9 +334,9 @@ class WalletScreen extends ConsumerWidget {
                   ),
                   const SizedBox(height: AppSpacing.xl),
 
-                  // Simulated Paystack payment
+                  // Simulated deposit
                   SafeTraceButton(
-                    text: "Authorize Payment (Web Simulation)",
+                    text: "Authorize Deposit",
                     onPressed: () {
                       final val = double.tryParse(amountController.text) ?? 0.0;
                       if (val < 1000.0) {

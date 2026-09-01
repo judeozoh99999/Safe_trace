@@ -51,7 +51,7 @@ class WalletNotifier extends StateNotifier<WalletState> {
   void depositFunds(double amount) {
     final creditTx = TransactionModel(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
-      title: 'Paystack Wallet Deposit',
+      title: 'Wallet Deposit',
       type: 'credit',
       amount: amount,
       date: 'Just now',

@@ -134,8 +134,8 @@ class TermsOfServiceScreen extends StatelessWidget {
                   "Your emergency contacts must consent to receive SMS alerts and view your location coordinates. You represent that you have obtained consent from all 5 members of your emergency circle.",
                 ),
                 _buildSection(
-                  "8. Subscription and Payments",
-                  "Certain premium safety features require a paid subscription. Payments are securely processed via Paystack. Subscriptions auto-renew unless cancelled at least 24 hours before the end of the current period.",
+                  "8. Subscription",
+                  "SafeTrace Plus features can be claimed for free directly in the app. Subscriptions remain active for 365 days and can be cancelled or renewed at any time from your profile.",
                 ),
                 _buildSection(
                   "9. Intellectual Property",
