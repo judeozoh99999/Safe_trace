@@ -1144,5 +1144,103 @@ exports.cancelSubscription = functions.region('europe-west3').https.onCall(async
   return { success: true };
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// sendOtpEmail — Send 6-digit OTP verification email
+// ─────────────────────────────────────────────────────────────────────────────
+exports.sendOtpEmail = functions.region('europe-west3').https.onCall(async (data, context) => {
+  const email = (data.email || '').trim().toLowerCase();
+  if (!email || !email.includes('@')) {
+    throw new functions.https.HttpsError('invalid-argument', 'A valid email address is required.');
+  }
+
+  // 1. Generate 6-digit OTP
+  const otp = data.code || Math.floor(100000 + Math.random() * 900000).toString();
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes validity
+
+  // 2. Save to otps & otp_verifications collections in Firestore
+  const otpData = {
+    otp: otp,
+    code: otp,
+    email: email,
+    expires_at: admin.firestore.Timestamp.fromDate(expiresAt),
+    attempts_remaining: 5,
+    attempts: 0,
+    created_at: admin.firestore.FieldValue.serverTimestamp(),
+  };
+
+  await Promise.all([
+    db.collection('otps').doc(email).set(otpData),
+    db.collection('otp_verifications').doc(email).set(otpData),
+  ]);
+
+  // 3. Queue to mail collection for Trigger Email extension
+  await db.collection('mail').add({
+    to: email,
+    message: {
+      subject: `${otp} is your SafeTrace verification code`,
+      text: `${otp} is your SafeTrace verification code\n\nEnter this code in SafeTrace to verify your identity.\nThis code expires in 10 minutes.\nIf you did not request this code, please ignore this email.`,
+      html: `
+<div style="font-family: Arial, sans-serif; padding: 24px; color: #111827; max-width: 480px; margin: 0 auto; border: 1px solid #E5E7EB; border-radius: 16px;">
+  <h1 style="font-size: 36px; font-weight: 800; margin: 0 0 12px 0; color: #111827; letter-spacing: 2px;">${otp}</h1>
+  <p style="font-size: 18px; font-weight: bold; margin: 0 0 16px 0; color: #111827;">is your SafeTrace verification code</p>
+  <p style="font-size: 14px; margin: 0 0 12px 0; color: #4B5563;">Enter this code in the SafeTrace app to verify your identity.</p>
+  <p style="font-size: 14px; margin: 0 0 12px 0; color: #DC2626; font-weight: bold;">This code expires in 10 minutes.</p>
+  <p style="font-size: 12px; margin: 0; color: #9CA3AF;">If you did not request this code, please ignore this email.</p>
+</div>
+`
+    }
+  });
+
+  console.log(`[OTP_EMAIL] Generated & queued OTP ${otp} for ${email}`);
+  return { success: true, message: 'OTP sent successfully', email: email };
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// verifyOtpEmail — Verify 6-digit OTP code on backend
+// ─────────────────────────────────────────────────────────────────────────────
+exports.verifyOtpEmail = functions.region('europe-west3').https.onCall(async (data, context) => {
+  const email = (data.email || '').trim().toLowerCase();
+  const code = (data.code || '').trim();
+
+  if (!email || !code) {
+    throw new functions.https.HttpsError('invalid-argument', 'Email and code are required.');
+  }
+
+  const otpDoc = await db.collection('otps').doc(email).get();
+  if (!otpDoc.exists) {
+    throw new functions.https.HttpsError('not-found', 'Verification code expired or not found.');
+  }
+
+  const docData = otpDoc.data();
+  const expiresAt = docData.expires_at ? docData.expires_at.toDate() : null;
+  const savedOtp = docData.otp || docData.code;
+  const attempts = docData.attempts || 0;
+
+  if (expiresAt && new Date() > expiresAt) {
+    await db.collection('otps').doc(email).delete();
+    await db.collection('otp_verifications').doc(email).delete();
+    throw new functions.https.HttpsError('failed-precondition', 'Verification code has expired.');
+  }
+
+  if (attempts >= 5) {
+    await db.collection('otps').doc(email).delete();
+    await db.collection('otp_verifications').doc(email).delete();
+    throw new functions.https.HttpsError('resource-exhausted', 'TOO_MANY_ATTEMPTS');
+  }
+
+  if (savedOtp === code) {
+    await db.collection('otps').doc(email).delete();
+    await db.collection('otp_verifications').doc(email).delete();
+    return { success: true, verified: true };
+  } else {
+    await db.collection('otps').doc(email).update({ attempts: attempts + 1 });
+    await db.collection('otp_verifications').doc(email).update({
+      attempts: attempts + 1,
+      attempts_remaining: Math.max(0, 5 - (attempts + 1)),
+    });
+    throw new functions.https.HttpsError('invalid-argument', 'Incorrect code. Please try again.');
+  }
+});
+
 
 

@@ -53,6 +53,10 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    match /otp_verifications/{otpId} {
+      allow read, write: if true;
+    }
+
     // ── Trigger Email extension rules ──
     // Unauthenticated & authenticated users can queue verification emails
     match /mail/{mailId} {

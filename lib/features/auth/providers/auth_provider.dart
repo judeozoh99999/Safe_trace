@@ -259,37 +259,49 @@ class AuthNotifier extends StateNotifier<AuthState> {
       // 1. Generate 6 digit code
       final code = (100000 + Random().nextInt(900000)).toString();
 
-      // 2. Save OTP document in Firestore (expires in 59 seconds)
-      await _firestore.collection('otps').doc(email).set({
+      // 2. Save OTP document in Firestore (expires in 10 minutes for safety, UI timer is 59s for resend)
+      final expiresAt = Timestamp.fromDate(DateTime.now().add(const Duration(minutes: 10)));
+      final otpPayload = {
         'otp': code,
-        'expires_at': Timestamp.fromDate(DateTime.now().add(const Duration(seconds: 59))),
+        'code': code,
+        'email': email,
+        'expires_at': expiresAt,
         'attempts': 0,
+        'attempts_remaining': 5,
         'created_at': FieldValue.serverTimestamp(),
-      });
+      };
+
+      await Future.wait([
+        _firestore.collection('otps').doc(email).set(otpPayload),
+        _firestore.collection('otp_verifications').doc(email).set(otpPayload),
+      ]);
 
       // 3. Write trigger to Firestore Trigger Email collection
       await _firestore.collection('mail').add({
         'to': email,
         'message': {
           'subject': '$code is your SafeTrace verification code',
-          'text': '$code is your SafeTrace verification code\n\nEnter this code in the SafeTrace app to verify your identity.\nThis code expires in 59 seconds.\nIf you did not request this code, please ignore this email.',
+          'text': '$code is your SafeTrace verification code\n\nEnter this code in the SafeTrace app to verify your identity.\nThis code expires in 10 minutes.\nIf you did not request this code, please ignore this email.',
           'html': '''
 <div style="font-family: Arial, sans-serif; padding: 24px; color: #111827; max-width: 480px; margin: 0 auto; border: 1px solid #E5E7EB; border-radius: 16px;">
   <h1 style="font-size: 36px; font-weight: 800; margin: 0 0 12px 0; color: #111827; letter-spacing: 2px;">$code</h1>
   <p style="font-size: 18px; font-weight: bold; margin: 0 0 16px 0; color: #111827;">is your SafeTrace verification code</p>
   <p style="font-size: 14px; margin: 0 0 12px 0; color: #4B5563;">Enter this code in the SafeTrace app to verify your identity.</p>
-  <p style="font-size: 14px; margin: 0 0 12px 0; color: #DC2626; font-weight: bold;">This code expires in 59 seconds.</p>
+  <p style="font-size: 14px; margin: 0 0 12px 0; color: #DC2626; font-weight: bold;">This code expires in 10 minutes.</p>
   <p style="font-size: 12px; margin: 0; color: #9CA3AF;">If you did not request this code, please ignore this email.</p>
 </div>
 ''',
         }
       });
 
-      // 4. Debug print for developer visibility
-      debugPrint("--- Real Email OTP Sent to $email: $code ---");
+      // 4. Highlighted Debug print for instant testing
+      debugPrint("\n========================================================");
+      debugPrint(">>> [SAFETRACE OTP] VERIFICATION CODE FOR $email: $code <<<");
+      debugPrint("========================================================\n");
 
       state = state.copyWith(isLoading: false, isCodeSent: true, attempts: 0);
     } catch (e) {
+      debugPrint("[SAFETRACE OTP] Error sending OTP: $e");
       state = state.copyWith(isLoading: false, error: _mapFirebaseError(e));
     }
   }
@@ -305,27 +317,37 @@ class AuthNotifier extends StateNotifier<AuthState> {
     state = state.copyWith(isLoading: true, error: null);
 
     try {
-      final doc = await _firestore.collection('otps').doc(email).get();
+      DocumentSnapshot doc = await _firestore.collection('otps').doc(email).get();
       if (!doc.exists) {
-        state = state.copyWith(isLoading: false, error: "The code has expired.");
+        doc = await _firestore.collection('otp_verifications').doc(email).get();
+      }
+
+      if (!doc.exists) {
+        state = state.copyWith(isLoading: false, error: "The code has expired or was already used.");
         return false;
       }
 
       final data = doc.data() as Map<String, dynamic>;
-      final expiresAt = data['expires_at'] as Timestamp;
-      final savedOtp = data['otp'] as String;
-      int attempts = data['attempts'] ?? 0;
+      final expiresAt = (data['expires_at'] as Timestamp?)?.toDate();
+      final savedOtp = (data['otp'] ?? data['code'] ?? '').toString().trim();
+      int attempts = (data['attempts'] as num?)?.toInt() ?? 0;
 
       // 1. Check expiration
-      if (DateTime.now().isAfter(expiresAt.toDate())) {
-        await _firestore.collection('otps').doc(email).delete();
+      if (expiresAt != null && DateTime.now().isAfter(expiresAt)) {
+        await Future.wait([
+          _firestore.collection('otps').doc(email).delete().catchError((_) {}),
+          _firestore.collection('otp_verifications').doc(email).delete().catchError((_) {}),
+        ]);
         state = state.copyWith(isLoading: false, error: "The code has expired.");
         return false;
       }
 
       // 2. Check maximum attempts
       if (attempts >= 5) {
-        await _firestore.collection('otps').doc(email).delete();
+        await Future.wait([
+          _firestore.collection('otps').doc(email).delete().catchError((_) {}),
+          _firestore.collection('otp_verifications').doc(email).delete().catchError((_) {}),
+        ]);
         state = state.copyWith(
           isLoading: false,
           error: "TOO_MANY_ATTEMPTS",
@@ -335,16 +357,26 @@ class AuthNotifier extends StateNotifier<AuthState> {
       }
 
       // 3. Match code
-      if (savedOtp == code) {
-        await _firestore.collection('otps').doc(email).delete();
+      if (savedOtp == code.trim()) {
+        await Future.wait([
+          _firestore.collection('otps').doc(email).delete().catchError((_) {}),
+          _firestore.collection('otp_verifications').doc(email).delete().catchError((_) {}),
+        ]);
         state = state.copyWith(isLoading: false);
         return true;
       } else {
         attempts++;
-        await _firestore.collection('otps').doc(email).update({'attempts': attempts});
+        await _firestore.collection('otps').doc(email).update({'attempts': attempts}).catchError((_) {});
+        await _firestore.collection('otp_verifications').doc(email).update({
+          'attempts': attempts,
+          'attempts_remaining': (5 - attempts).clamp(0, 5),
+        }).catchError((_) {});
         
         if (attempts >= 5) {
-          await _firestore.collection('otps').doc(email).delete();
+          await Future.wait([
+            _firestore.collection('otps').doc(email).delete().catchError((_) {}),
+            _firestore.collection('otp_verifications').doc(email).delete().catchError((_) {}),
+          ]);
           state = state.copyWith(
             isLoading: false,
             error: "TOO_MANY_ATTEMPTS",
@@ -360,6 +392,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         return false;
       }
     } catch (e) {
+      debugPrint("[SAFETRACE OTP] Error verifying OTP: $e");
       state = state.copyWith(isLoading: false, error: _mapFirebaseError(e));
       return false;
     }
