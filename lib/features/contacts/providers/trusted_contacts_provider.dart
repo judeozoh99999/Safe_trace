@@ -1,80 +1,143 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:async/async.dart';
 
-final trustedContactsCountProvider = StreamProvider<int>((ref) {
+/// Structured data model containing all 3 categories of trusted circle contacts
+class TrustedCircleData {
+  final List<QueryDocumentSnapshot> activeCircle;
+  final List<QueryDocumentSnapshot> pendingSent;
+  final List<QueryDocumentSnapshot> incomingRequests;
+
+  const TrustedCircleData({
+    this.activeCircle = const [],
+    this.pendingSent = const [],
+    this.incomingRequests = const [],
+  });
+
+  bool get isEmpty => activeCircle.isEmpty && pendingSent.isEmpty && incomingRequests.isEmpty;
+  int get activeCount => activeCircle.length;
+  int get pendingCount => pendingSent.length;
+  int get incomingCount => incomingRequests.length;
+}
+
+/// Robust StreamProvider for all Trusted Circle contacts & requests.
+/// Merges two scoped Firestore queries (requester and recipient) with keepAlive
+/// so data is never lost or prematurely reset across screen navigation.
+final trustedCircleStreamProvider = StreamProvider<TrustedCircleData>((ref) {
+  ref.keepAlive();
+
   final user = FirebaseAuth.instance.currentUser;
   if (user == null) {
-    return Stream.value(0);
+    debugPrint('[TRUSTED_CIRCLE_PROVIDER] User is null -> emitting empty');
+    return Stream.value(const TrustedCircleData());
   }
 
-  final controller = StreamController<int>();
+  final controller = StreamController<TrustedCircleData>();
 
-  // 1. User document stream (for denormalized accepted_contacts_count field)
-  final userDocStream = FirebaseFirestore.instance
-      .collection('users')
-      .doc(user.uid)
-      .snapshots();
+  debugPrint('[TRUSTED_CIRCLE_PROVIDER] Subscribing to queries for user: ${user.uid}');
 
-  // 2. Collection streams fallback
+  // Query 1: Where current user is the requester
   final reqStream = FirebaseFirestore.instance
       .collection('trusted_circle_requests')
       .where('requester_uid', isEqualTo: user.uid)
-      .where('status', isEqualTo: 'accepted')
       .snapshots();
 
+  // Query 2: Where current user is the recipient
   final recStream = FirebaseFirestore.instance
       .collection('trusted_circle_requests')
       .where('recipient_uid', isEqualTo: user.uid)
-      .where('status', isEqualTo: 'accepted')
       .snapshots();
 
-  final zipStream = StreamZip([reqStream, recStream]);
+  List<QueryDocumentSnapshot>? latestReqDocs;
+  List<QueryDocumentSnapshot>? latestRecDocs;
 
-  StreamSubscription? userSub;
-  StreamSubscription? zipSub;
+  void emitMerged() {
+    final docMap = <String, QueryDocumentSnapshot>{};
+    for (final doc in latestReqDocs ?? <QueryDocumentSnapshot>[]) {
+      docMap[doc.id] = doc;
+    }
+    for (final doc in latestRecDocs ?? <QueryDocumentSnapshot>[]) {
+      docMap[doc.id] = doc;
+    }
 
-  userSub = userDocStream.listen((userSnap) {
-    if (userSnap.exists) {
-      final data = userSnap.data();
-      if (data != null && data.containsKey('accepted_contacts_count') && data['accepted_contacts_count'] != null) {
-        final count = (data['accepted_contacts_count'] as num).toInt();
-        if (!controller.isClosed) {
-          controller.add(count < 0 ? 0 : count);
+    final activeCircle = <QueryDocumentSnapshot>[];
+    final pendingSent = <QueryDocumentSnapshot>[];
+    final incomingRequests = <QueryDocumentSnapshot>[];
+
+    for (final doc in docMap.values) {
+      final data = doc.data() as Map<String, dynamic>;
+      final reqUid = (data['requester_uid'] ?? '').toString();
+      final recUid = (data['recipient_uid'] ?? '').toString();
+      final status = (data['status'] ?? '').toString().toLowerCase().trim();
+
+      debugPrint('[TRUSTED_CIRCLE_PROVIDER] Doc ${doc.id}: req=$reqUid, rec=$recUid, status=$status');
+
+      if (reqUid != user.uid && recUid != user.uid) {
+        debugPrint('[TRUSTED_CIRCLE_PROVIDER] Doc ${doc.id} filtered out (UID mismatch)');
+        continue;
+      }
+
+      if (status == 'accepted' || status == 'pending_deletion') {
+        activeCircle.add(doc);
+      } else if (status == 'pending') {
+        if (reqUid == user.uid) {
+          pendingSent.add(doc);
+        } else if (recUid == user.uid) {
+          incomingRequests.add(doc);
         }
-        return;
       }
     }
-  }, onError: (_) {});
 
-  zipSub = zipStream.listen((events) {
-    final reqSnap = events[0];
-    final recSnap = events[1];
-
-    final uniqueDocIds = <String>{};
-    for (final doc in reqSnap.docs) {
-      uniqueDocIds.add(doc.id);
-    }
-    for (final doc in recSnap.docs) {
-      uniqueDocIds.add(doc.id);
-    }
+    debugPrint(
+      '[TRUSTED_CIRCLE_PROVIDER] EMISSION -> '
+      'Active: ${activeCircle.length}, '
+      'Pending Sent: ${pendingSent.length}, '
+      'Incoming: ${incomingRequests.length}',
+    );
 
     if (!controller.isClosed) {
-      controller.add(uniqueDocIds.length);
+      controller.add(TrustedCircleData(
+        activeCircle: activeCircle,
+        pendingSent: pendingSent,
+        incomingRequests: incomingRequests,
+      ));
     }
-  }, onError: (err) {
-    if (!controller.isClosed) {
-      controller.addError(err);
-    }
-  });
+  }
+
+  final sub1 = reqStream.listen(
+    (snap) {
+      latestReqDocs = snap.docs;
+      emitMerged();
+    },
+    onError: (err) {
+      debugPrint('[TRUSTED_CIRCLE_PROVIDER] Error in reqStream: $err');
+    },
+  );
+
+  final sub2 = recStream.listen(
+    (snap) {
+      latestRecDocs = snap.docs;
+      emitMerged();
+    },
+    onError: (err) {
+      debugPrint('[TRUSTED_CIRCLE_PROVIDER] Error in recStream: $err');
+    },
+  );
 
   ref.onDispose(() {
-    userSub?.cancel();
-    zipSub?.cancel();
+    sub1.cancel();
+    sub2.cancel();
     controller.close();
   });
 
   return controller.stream;
+});
+
+/// Count provider derived directly from trustedCircleStreamProvider or user doc
+final trustedContactsCountProvider = StreamProvider<int>((ref) {
+  ref.keepAlive();
+  final circleAsync = ref.watch(trustedCircleStreamProvider);
+  return Stream.value(circleAsync.valueOrNull?.activeCount ?? 0);
 });
