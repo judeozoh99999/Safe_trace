@@ -2,9 +2,13 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Users collection rules
+    // ── Users collection rules ──
+    // Allow read so phone lookup (checkPhoneExists / getEmailForPhone) works during login/registration
+    // Allow write/update/create for the document owner
     match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.uid == userId;
+      allow create: if request.auth != null;
       
       // Notifications subcollection
       match /notifications/{notifId} {
@@ -43,7 +47,20 @@ service cloud.firestore {
       }
     }
 
-    // Nearby connections collection rules
+    // ── OTP verification rules ──
+    // Unauthenticated users during sign up & login must read/write their email OTP
+    match /otps/{otpId} {
+      allow read, write: if true;
+    }
+
+    // ── Trigger Email extension rules ──
+    // Unauthenticated & authenticated users can queue verification emails
+    match /mail/{mailId} {
+      allow create: if true;
+      allow read, update, delete: if false;
+    }
+
+    // ── Nearby connections collection rules ──
     match /nearby_connections/{connId} {
       allow read, write: if request.auth != null && 
         (request.auth.uid == resource.data.requester_uid || 
@@ -52,54 +69,39 @@ service cloud.firestore {
          request.auth.uid == request.resource.data.recipient_uid);
     }
     
-    // Nearby sessions collection rules
+    // ── Nearby sessions collection rules ──
     match /nearby_sessions/{sessId} {
       allow read, write: if request.auth != null;
     }
 
-    // active_panics collection rules
+    // ── active_panics collection rules ──
     match /active_panics/{panicId} {
-      // Any authenticated user can read if their UID is in the notified_contacts array
       allow read: if request.auth != null && request.auth.uid in resource.data.notified_contacts;
-      
-      // Only the document owner identified by the uid field can create
       allow create: if request.auth != null && request.auth.uid == request.resource.data.uid;
-      
-      // Only the document owner can update (including setting is_active to false)
       allow update: if request.auth != null && 
         request.auth.uid == resource.data.uid && 
         request.auth.uid == request.resource.data.uid;
-        
       allow delete: if false;
     }
 
-    // community_notes collection rules
+    // ── community_notes collection rules ──
     match /community_notes/{noteId} {
-      // Any authenticated user can read all documents where is_visible is true
       allow read: if request.auth != null && resource.data.is_visible == true;
-      
-      // An authenticated user can create only if uid matches their own UID
       allow create: if request.auth != null && request.auth.uid == request.resource.data.uid;
-      
-      // No user can edit another user's document
       allow update: if false;
-      
-      // An authenticated user can delete only if uid matches their own UID
       allow delete: if request.auth != null && request.auth.uid == resource.data.uid;
     }
 
-    // nearby_alert_events collection rules
+    // ── nearby_alert_events collection rules ──
     match /nearby_alert_events/{eventId} {
-      // User can read if their UID is requester, recipient, or in visible_to
       allow read: if request.auth != null && 
         (request.auth.uid == resource.data.requester_uid || 
          request.auth.uid == resource.data.recipient_uid || 
          request.auth.uid in resource.data.visible_to);
-      // No user can create/update/delete directly - managed by Cloud Functions / backend
       allow create, update, delete: if false;
     }
 
-    // trusted_circle_requests collection rules
+    // ── trusted_circle_requests collection rules ──
     match /trusted_circle_requests/{requestId} {
       allow read: if request.auth != null && 
         (request.auth.uid == resource.data.requester_uid || 
@@ -116,15 +118,14 @@ service cloud.firestore {
          request.auth.uid == resource.data.recipient_uid);
     }
 
-    // ai_summaries collection rules
+    // ── ai_summaries & gemini_usage (Admin SDK only) ──
     match /ai_summaries/{summaryId} {
       allow read: if request.auth != null;
-      allow write: if false; // Cloud Functions Admin SDK only
+      allow write: if false;
     }
 
-    // gemini_usage collection rules
     match /gemini_usage/{usageId} {
-      allow read, write: if false; // Cloud Functions Admin SDK only
+      allow read, write: if false;
     }
   }
 }
