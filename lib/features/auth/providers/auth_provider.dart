@@ -57,6 +57,7 @@ class AuthState {
   final DateTime? createdAt;
   final String nearbyAlertId;
   final String otpSentEmail;
+  final String lastGeneratedOtp;
   final int attempts;
 
   AuthState({
@@ -72,6 +73,7 @@ class AuthState {
     this.createdAt,
     this.nearbyAlertId = '',
     this.otpSentEmail = '',
+    this.lastGeneratedOtp = '',
     this.attempts = 0,
   });
 
@@ -90,6 +92,7 @@ class AuthState {
     DateTime? createdAt,
     String? nearbyAlertId,
     String? otpSentEmail,
+    String? lastGeneratedOtp,
     int? attempts,
   }) {
     return AuthState(
@@ -105,6 +108,7 @@ class AuthState {
       createdAt: createdAt ?? this.createdAt,
       nearbyAlertId: nearbyAlertId ?? this.nearbyAlertId,
       otpSentEmail: otpSentEmail ?? this.otpSentEmail,
+      lastGeneratedOtp: lastGeneratedOtp ?? this.lastGeneratedOtp,
       attempts: attempts ?? this.attempts,
     );
   }
@@ -299,7 +303,12 @@ class AuthNotifier extends StateNotifier<AuthState> {
       debugPrint(">>> [SAFETRACE OTP] VERIFICATION CODE FOR $email: $code <<<");
       debugPrint("========================================================\n");
 
-      state = state.copyWith(isLoading: false, isCodeSent: true, attempts: 0);
+      state = state.copyWith(
+        isLoading: false,
+        isCodeSent: true,
+        lastGeneratedOtp: code,
+        attempts: 0,
+      );
     } catch (e) {
       debugPrint("[SAFETRACE OTP] Error sending OTP: $e");
       state = state.copyWith(isLoading: false, error: _mapFirebaseError(e));

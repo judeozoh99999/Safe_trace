@@ -244,6 +244,42 @@ class _AccountVerificationScreenState extends ConsumerState<AccountVerificationS
                   ],
                 ),
               ),
+              if (authState.lastGeneratedOtp.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                InkWell(
+                  onTap: () {
+                    final otp = authState.lastGeneratedOtp;
+                    for (int i = 0; i < otp.length && i < 6; i++) {
+                      _controllers[i].text = otp[i];
+                    }
+                    _focusNodes[5].requestFocus();
+                  },
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEFF6FF),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFBFDBFE)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.touch_app_rounded, size: 16, color: Color(0xFF2563EB)),
+                        const SizedBox(width: 6),
+                        Text(
+                          "Test Code: ${authState.lastGeneratedOtp} (Tap to autofill)",
+                          style: const TextStyle(
+                            color: Color(0xFF1D4ED8),
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
               const SizedBox(height: 32),
 
               // OTP Digits Row / Session Invalidated View
