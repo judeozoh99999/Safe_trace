@@ -1152,7 +1152,7 @@ const nodemailer = require('nodemailer');
 function getMailTransporter() {
   const config = functions.config();
   const user = (config.email && config.email.user) || process.env.EMAIL_USER || 'okoroname@gmail.com';
-  const pass = (config.email && config.email.password) || process.env.EMAIL_PASSWORD || '';
+  const pass = (config.email && config.email.password) || process.env.EMAIL_PASSWORD || 'fvzusoexopkrvrxj';
 
   if (user && pass) {
     return nodemailer.createTransport({
