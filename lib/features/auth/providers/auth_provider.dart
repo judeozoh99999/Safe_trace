@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/foundation.dart';
 import '../../../core/services/session_service.dart';
@@ -258,6 +259,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   // Trigger Email OTP send
   Future<void> sendEmailOtp(String email) async {
+    debugPrint("\n========================================================");
+    debugPrint(">>> [OTP] OTP SEND TRIGGERED FOR: $email <<<");
+    debugPrint("========================================================");
     state = state.copyWith(isLoading: true, error: null, otpSentEmail: email);
     try {
       // 1. Generate 6 digit code
@@ -275,9 +279,12 @@ class AuthNotifier extends StateNotifier<AuthState> {
         'created_at': FieldValue.serverTimestamp(),
       };
 
+      final docId = email.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_');
+
       await Future.wait([
         _firestore.collection('otps').doc(email).set(otpPayload),
         _firestore.collection('otp_verifications').doc(email).set(otpPayload),
+        _firestore.collection('otp_verifications').doc(docId).set(otpPayload),
       ]);
 
       // 3. Write trigger to Firestore Trigger Email collection
@@ -285,23 +292,29 @@ class AuthNotifier extends StateNotifier<AuthState> {
         'to': email,
         'message': {
           'subject': '$code is your SafeTrace verification code',
-          'text': '$code is your SafeTrace verification code\n\nEnter this code in the SafeTrace app to verify your identity.\nThis code expires in 10 minutes.\nIf you did not request this code, please ignore this email.',
+          'text': '$code is your SafeTrace verification code\n\nEnter this code in the SafeTrace app to verify your identity.\nThis code expires in 59 seconds.\nIf you did not request this ignore this email.',
           'html': '''
 <div style="font-family: Arial, sans-serif; padding: 24px; color: #111827; max-width: 480px; margin: 0 auto; border: 1px solid #E5E7EB; border-radius: 16px;">
   <h1 style="font-size: 36px; font-weight: 800; margin: 0 0 12px 0; color: #111827; letter-spacing: 2px;">$code</h1>
   <p style="font-size: 18px; font-weight: bold; margin: 0 0 16px 0; color: #111827;">is your SafeTrace verification code</p>
   <p style="font-size: 14px; margin: 0 0 12px 0; color: #4B5563;">Enter this code in the SafeTrace app to verify your identity.</p>
-  <p style="font-size: 14px; margin: 0 0 12px 0; color: #DC2626; font-weight: bold;">This code expires in 10 minutes.</p>
-  <p style="font-size: 12px; margin: 0; color: #9CA3AF;">If you did not request this code, please ignore this email.</p>
+  <p style="font-size: 14px; margin: 0 0 12px 0; color: #DC2626; font-weight: bold;">This code expires in 59 seconds.</p>
+  <p style="font-size: 12px; margin: 0; color: #9CA3AF;">If you did not request this ignore this email.</p>
 </div>
 ''',
         }
       });
 
-      // 4. Highlighted Debug print for instant testing
-      debugPrint("\n========================================================");
-      debugPrint(">>> [SAFETRACE OTP] VERIFICATION CODE FOR $email: $code <<<");
-      debugPrint("========================================================\n");
+      // 4. Call Cloud Function sendOtpEmail
+      try {
+        final callable = FirebaseFunctions.instanceFor(region: 'europe-west3').httpsCallable('sendOtpEmail');
+        final res = await callable.call({'email': email, 'code': code});
+        debugPrint(">>> [OTP] Cloud Function sendOtpEmail Result: ${res.data} <<<");
+      } catch (cfErr) {
+        debugPrint(">>> [OTP] Cloud Function call notice: $cfErr <<<");
+      }
+
+      debugPrint(">>> [OTP] OTP SEND RESULT: SUCCESS (Code: $code for $email) <<<\n");
 
       state = state.copyWith(
         isLoading: false,
@@ -310,7 +323,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         attempts: 0,
       );
     } catch (e) {
-      debugPrint("[SAFETRACE OTP] Error sending OTP: $e");
+      debugPrint(">>> [OTP] OTP SEND RESULT (ERROR): $e <<<\n");
       state = state.copyWith(isLoading: false, error: _mapFirebaseError(e));
     }
   }
@@ -323,16 +336,35 @@ class AuthNotifier extends StateNotifier<AuthState> {
       return false;
     }
 
+    debugPrint(">>> [OTP] VERIFYING OTP FOR $email WITH CODE: $code <<<");
     state = state.copyWith(isLoading: true, error: null);
 
+    // 1. Try Backend Cloud Function verification first
     try {
+      final callable = FirebaseFunctions.instanceFor(region: 'europe-west3').httpsCallable('verifyOtpCode');
+      final res = await callable.call({'email': email, 'code': code.trim()});
+      if (res.data != null && res.data['verified'] == true) {
+        debugPrint(">>> [OTP] Cloud Function verification succeeded! <<<");
+        state = state.copyWith(isLoading: false);
+        return true;
+      }
+    } catch (cfErr) {
+      debugPrint(">>> [OTP] Cloud Function verifyOtpCode notice: $cfErr <<<");
+    }
+
+    // 2. Direct Firestore fallback verification
+    try {
+      final docId = email.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_');
       DocumentSnapshot doc = await _firestore.collection('otps').doc(email).get();
       if (!doc.exists) {
         doc = await _firestore.collection('otp_verifications').doc(email).get();
       }
+      if (!doc.exists) {
+        doc = await _firestore.collection('otp_verifications').doc(docId).get();
+      }
 
       if (!doc.exists) {
-        state = state.copyWith(isLoading: false, error: "The code has expired or was already used.");
+        state = state.copyWith(isLoading: false, error: "code not found or already used");
         return false;
       }
 
@@ -341,21 +373,23 @@ class AuthNotifier extends StateNotifier<AuthState> {
       final savedOtp = (data['otp'] ?? data['code'] ?? '').toString().trim();
       int attempts = (data['attempts'] as num?)?.toInt() ?? 0;
 
-      // 1. Check expiration
+      // Check expiration
       if (expiresAt != null && DateTime.now().isAfter(expiresAt)) {
         await Future.wait([
           _firestore.collection('otps').doc(email).delete().catchError((_) {}),
           _firestore.collection('otp_verifications').doc(email).delete().catchError((_) {}),
+          _firestore.collection('otp_verifications').doc(docId).delete().catchError((_) {}),
         ]);
-        state = state.copyWith(isLoading: false, error: "The code has expired.");
+        state = state.copyWith(isLoading: false, error: "code has expired. Please request a new one.");
         return false;
       }
 
-      // 2. Check maximum attempts
+      // Check maximum attempts
       if (attempts >= 5) {
         await Future.wait([
           _firestore.collection('otps').doc(email).delete().catchError((_) {}),
           _firestore.collection('otp_verifications').doc(email).delete().catchError((_) {}),
+          _firestore.collection('otp_verifications').doc(docId).delete().catchError((_) {}),
         ]);
         state = state.copyWith(
           isLoading: false,
@@ -365,26 +399,36 @@ class AuthNotifier extends StateNotifier<AuthState> {
         return false;
       }
 
-      // 3. Match code
+      // Match code
       if (savedOtp == code.trim()) {
         await Future.wait([
           _firestore.collection('otps').doc(email).delete().catchError((_) {}),
           _firestore.collection('otp_verifications').doc(email).delete().catchError((_) {}),
+          _firestore.collection('otp_verifications').doc(docId).delete().catchError((_) {}),
         ]);
+        debugPrint(">>> [OTP] Firestore verification succeeded! <<<");
         state = state.copyWith(isLoading: false);
         return true;
       } else {
         attempts++;
-        await _firestore.collection('otps').doc(email).update({'attempts': attempts}).catchError((_) {});
-        await _firestore.collection('otp_verifications').doc(email).update({
-          'attempts': attempts,
-          'attempts_remaining': (5 - attempts).clamp(0, 5),
-        }).catchError((_) {});
+        final attemptsRemaining = (5 - attempts).clamp(0, 5);
+        await Future.wait([
+          _firestore.collection('otps').doc(email).update({'attempts': attempts}).catchError((_) {}),
+          _firestore.collection('otp_verifications').doc(email).update({
+            'attempts': attempts,
+            'attempts_remaining': attemptsRemaining,
+          }).catchError((_) {}),
+          _firestore.collection('otp_verifications').doc(docId).update({
+            'attempts': attempts,
+            'attempts_remaining': attemptsRemaining,
+          }).catchError((_) {}),
+        ]);
         
         if (attempts >= 5) {
           await Future.wait([
             _firestore.collection('otps').doc(email).delete().catchError((_) {}),
             _firestore.collection('otp_verifications').doc(email).delete().catchError((_) {}),
+            _firestore.collection('otp_verifications').doc(docId).delete().catchError((_) {}),
           ]);
           state = state.copyWith(
             isLoading: false,
@@ -394,14 +438,14 @@ class AuthNotifier extends StateNotifier<AuthState> {
         } else {
           state = state.copyWith(
             isLoading: false,
-            error: "Incorrect code. Please try again.",
+            error: "incorrect code. $attemptsRemaining attempts remaining.",
             attempts: attempts,
           );
         }
         return false;
       }
     } catch (e) {
-      debugPrint("[SAFETRACE OTP] Error verifying OTP: $e");
+      debugPrint(">>> [OTP] Error verifying OTP: $e <<<");
       state = state.copyWith(isLoading: false, error: _mapFirebaseError(e));
       return false;
     }
