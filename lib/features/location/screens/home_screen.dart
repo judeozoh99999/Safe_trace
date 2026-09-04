@@ -5,7 +5,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/services/sms_service.dart';
-import '../../contacts/providers/contacts_provider.dart';
+import '../../contacts/providers/trusted_contacts_provider.dart';
+import '../../contacts/screens/trusted_circle_screen.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../providers/home_provider.dart';
 import '../services/location_service.dart';
@@ -165,40 +166,26 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
 
     final authState = ref.read(authNotifierProvider);
     final currentUser = FirebaseAuth.instance.currentUser;
-    if (currentUser == null) return;
+    if (currentUser == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Color(0xFFEF4444),
+            content: Text("Please sign in again to use the panic button."),
+          ),
+        );
+      }
+      return;
+    }
 
     final userName = authState.displayName.isEmpty ? 'A SafeTrace User' : authState.displayName;
 
-    // Fetch accepted contacts from trusted_circle_requests in backend
-    List<Map<String, String>> circleContacts = [];
-    try {
-      final reqSnap = await FirebaseFirestore.instance
-          .collection('trusted_circle_requests')
-          .where('status', whereIn: ['accepted', 'pending_deletion'])
-          .get();
+    // Fetch accepted contacts using the single shared method
+    final List<AcceptedTrustedContact> circleContacts =
+        await TrustedContactsService.getAcceptedTrustedContacts(currentUser.uid);
 
-      for (final doc in reqSnap.docs) {
-        final data = doc.data();
-        final reqUid = (data['requester_uid'] ?? '').toString();
-        final recUid = (data['recipient_uid'] ?? '').toString();
-
-        if (reqUid == currentUser.uid && recUid.isNotEmpty) {
-          circleContacts.add({
-            'uid': recUid,
-            'phone': (data['recipient_phone'] ?? '').toString(),
-            'name': "${data['recipient_first_name'] ?? ''} ${data['recipient_last_name'] ?? ''}".trim(),
-          });
-        } else if (recUid == currentUser.uid && reqUid.isNotEmpty) {
-          circleContacts.add({
-            'uid': reqUid,
-            'phone': (data['requester_phone'] ?? '').toString(),
-            'name': "${data['requester_first_name'] ?? ''} ${data['requester_last_name'] ?? ''}".trim(),
-          });
-        }
-      }
-    } catch (e) {
-      debugPrint("Failed to fetch trusted_circle_requests: $e");
-    }
+    final contactNames = circleContacts.map((c) => c.firstName).join(', ');
+    debugPrint("PANIC CONTACTS FOUND: ${circleContacts.length} contacts. Names: $contactNames");
 
     if (circleContacts.isEmpty) {
       if (mounted) {
@@ -250,7 +237,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
       lng: lng,
     );
 
-    final recipients = circleContacts.map((c) => c['phone']!).where((p) => p.isNotEmpty).toList();
+    final recipients = circleContacts.map((c) => c.phoneNumber).where((p) => p.isNotEmpty).toList();
 
     try {
       if (recipients.isNotEmpty && _hasSmsPermission) {
@@ -265,9 +252,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
 
     // Send dynamic distress notifications to contacts in trusted circle
     for (final contact in circleContacts) {
-      final contactUid = contact['uid']!;
-      final contactPhone = contact['phone']!;
-      final contactName = contact['name']!;
+      final contactUid = contact.uid;
+      final contactPhone = contact.phoneNumber;
+      final contactName = contact.name;
 
       if (contactUid.isNotEmpty) {
         notifiedUids.add(contactUid);
@@ -730,6 +717,84 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
                   ),
                 ),
               ),
+            ),
+            // Contact availability indicator or empty warning banner (Step 8 & 9)
+            Consumer(
+              builder: (context, ref, child) {
+                final contactsAsync = ref.watch(acceptedTrustedContactsStreamProvider);
+                final contacts = contactsAsync.valueOrNull ?? [];
+                final count = contacts.length;
+
+                if (contactsAsync.isLoading && contacts.isEmpty) {
+                  return const SizedBox(height: 16);
+                }
+
+                if (count > 0) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 6.0),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Container(
+                          width: 8,
+                          height: 8,
+                          decoration: const BoxDecoration(
+                            color: Color(0xFF10B981),
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          "$count ${count == 1 ? 'contact' : 'contacts'} ready",
+                          style: const TextStyle(
+                            color: Color(0xFF059669),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                } else {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8.0),
+                    child: GestureDetector(
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => const TrustedCircleScreen()),
+                        );
+                      },
+                      child: Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 24),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFEF2F2),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFEF4444), width: 1.2),
+                        ),
+                        child: Row(
+                          children: const [
+                            Icon(Icons.warning_amber_rounded, color: Color(0xFFDC2626), size: 20),
+                            SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                "No contacts in your Trusted Circle yet. Tap to add contacts.",
+                                style: TextStyle(
+                                  color: Color(0xFF991B1B),
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  height: 1.35,
+                                ),
+                              ),
+                            ),
+                            Icon(Icons.chevron_right_rounded, color: Color(0xFF991B1B), size: 18),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                }
+              },
             ),
 
             const Text(
