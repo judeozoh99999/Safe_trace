@@ -3,8 +3,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_colors.dart';
-import 'onboarding_screen.dart';
-import 'login_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -30,18 +28,37 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
 
     _controller.forward();
 
-    // Navigate after splash animation
-    Future.delayed(const Duration(milliseconds: 2500), () async {
+    // Navigate after splash animation with resilient session resolution (Section 3)
+    Future.delayed(const Duration(milliseconds: 1500), () async {
       if (!mounted) return;
-      final prefs = await SharedPreferences.getInstance();
-      final onboardingCompleted = prefs.getBool('onboarding_completed') ?? false;
-      final user = FirebaseAuth.instance.currentUser;
+
+      // 1. Synchronous check: If user already present in memory, go directly to home
+      User? user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        if (mounted) GoRouter.of(context).go('/home');
+        return;
+      }
+
+      // 2. Wait up to 3.5 more seconds (total ~5s) for Keystore restoration on aggressive Android ROMs
+      try {
+        user = await FirebaseAuth.instance
+            .authStateChanges()
+            .firstWhere((u) => u != null)
+            .timeout(const Duration(milliseconds: 3500));
+      } catch (_) {
+        // Timeout reached: genuine unauthenticated state
+        user = FirebaseAuth.instance.currentUser;
+      }
 
       if (!mounted) return;
       if (user != null) {
         GoRouter.of(context).go('/home');
       } else {
-        GoRouter.of(context).go(onboardingCompleted ? '/login' : '/onboarding');
+        final prefs = await SharedPreferences.getInstance();
+        final onboardingCompleted = prefs.getBool('onboarding_completed') ?? false;
+        if (mounted) {
+          GoRouter.of(context).go(onboardingCompleted ? '/login' : '/onboarding');
+        }
       }
     });
   }

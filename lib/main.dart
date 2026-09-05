@@ -6,6 +6,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'firebase_options.dart';
 import 'core/services/router.dart';
+import 'core/services/session_service.dart';
 import 'core/services/notification_service.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_provider.dart';
@@ -122,22 +123,30 @@ class _SafeTraceAppState extends ConsumerState<SafeTraceApp> with WidgetsBinding
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _refreshAuthToken();
+      _handleAppResumed();
     }
   }
 
-  Future<void> _refreshAuthToken() async {
+  Future<void> _handleAppResumed() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
       try {
-        await user.getIdToken(true); // Force token refresh on foreground
+        await user.reload();
       } on FirebaseAuthException catch (e) {
-        debugPrint("Token refresh failed: ${e.code} - ${e.message}");
-        if (e.code == 'user-not-found' || e.code == 'user-disabled' || e.code == 'invalid-user-token' || e.code == 'token-expired') {
+        debugPrint("User reload exception: ${e.code} - ${e.message}");
+        if (e.code == 'user-not-found' || e.code == 'user-disabled') {
           await FirebaseAuth.instance.signOut();
+          return;
         }
       } catch (e) {
-        debugPrint("Error refreshing auth token: $e");
+        debugPrint("Temporary network/error reloading user: $e");
+      }
+
+      // Check and self-heal session token
+      try {
+        await SessionService.checkSessionOnResume(ref);
+      } catch (e) {
+        debugPrint("Error in checkSessionOnResume: $e");
       }
     }
   }

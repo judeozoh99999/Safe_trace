@@ -17,6 +17,7 @@ import 'notifications_screen.dart';
 import '../../home_shell.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/services/inactivity_service.dart';
+import '../../../core/services/battery_optimization_service.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../profile/screens/profile_detail_screens.dart';
 import '../../route/screens/route_intel_screen.dart';
@@ -66,6 +67,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
       _checkLocationPermissionsOnLaunch();
       _checkInactivityOnLaunch();
       _checkSmsPermission();
+      BatteryOptimizationService.checkAndPromptPermissions(context);
     });
   }
 

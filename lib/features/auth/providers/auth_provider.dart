@@ -17,12 +17,53 @@ class AuthStatusNotifier extends ChangeNotifier {
   AuthStatus _status = AuthStatus.loading;
   User? _user;
   StreamSubscription<User?>? _subscription;
+  Timer? _nullGraceTimer;
 
   AuthStatusNotifier(this._auth) {
+    // 1. Synchronous check: If currentUser is already cached, set authenticated immediately
+    final current = _auth.currentUser;
+    if (current != null) {
+      _user = current;
+      _status = AuthStatus.authenticated;
+    }
+
+    // 2. Listen to auth changes with a 5-second grace period on null emissions
     _subscription = _auth.authStateChanges().listen((user) {
-      _user = user;
-      _status = user != null ? AuthStatus.authenticated : AuthStatus.unauthenticated;
-      notifyListeners();
+      if (user != null) {
+        _nullGraceTimer?.cancel();
+        _nullGraceTimer = null;
+        _user = user;
+        _status = AuthStatus.authenticated;
+        notifyListeners();
+      } else {
+        // Synchronous check fallback
+        if (_auth.currentUser != null) {
+          _nullGraceTimer?.cancel();
+          _nullGraceTimer = null;
+          _user = _auth.currentUser;
+          _status = AuthStatus.authenticated;
+          notifyListeners();
+          return;
+        }
+
+        // On aggressive ROMs (Vivo, Infinix, Tecno), process kills cause authStateChanges
+        // to emit null while the keystore session is being restored.
+        // Wait 5 seconds before confirming that the user is genuinely unauthenticated.
+        _nullGraceTimer?.cancel();
+        _nullGraceTimer = Timer(const Duration(seconds: 5), () {
+          if (_auth.currentUser == null) {
+            debugPrint("AuthStatusNotifier: 5s grace period expired with null user. Marking unauthenticated.");
+            _user = null;
+            _status = AuthStatus.unauthenticated;
+            notifyListeners();
+          } else {
+            debugPrint("AuthStatusNotifier: Keystore session restored within 5s grace period.");
+            _user = _auth.currentUser;
+            _status = AuthStatus.authenticated;
+            notifyListeners();
+          }
+        });
+      }
     });
   }
 
@@ -31,6 +72,7 @@ class AuthStatusNotifier extends ChangeNotifier {
 
   @override
   void dispose() {
+    _nullGraceTimer?.cancel();
     _subscription?.cancel();
     super.dispose();
   }
@@ -163,7 +205,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         String firstName = data['first_name'] ?? '';
         String lastName = data['last_name'] ?? '';
         if (firstName.isEmpty && lastName.isEmpty) {
-          final legacyName = data['full' + '_name'] ?? data['name'] ?? '';
+          final legacyName = data['full_name'] ?? data['name'] ?? '';
           if (legacyName.isNotEmpty) {
             final parts = legacyName.trim().split(RegExp(r'\s+'));
             if (parts.isNotEmpty) {

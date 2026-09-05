@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import 'package:go_router/go_router.dart';
@@ -11,16 +12,74 @@ import 'router.dart';
 class SessionService {
   static StreamSubscription<DocumentSnapshot>? _sessionSub;
   static bool _isInvalidating = false;
+  static Timer? _debounceTimer;
   static const String _prefKey = 'current_session_token';
+
+  // Android Keystore backed secure storage that survives process kills
+  static const FlutterSecureStorage _secureStorage = FlutterSecureStorage(
+    aOptions: AndroidOptions(
+      encryptedSharedPreferences: true,
+    ),
+  );
+
+  /// Helper to read session token from secure storage with SharedPreferences fallback
+  static Future<String?> _readLocalToken() async {
+    try {
+      final token = await _secureStorage.read(key: _prefKey);
+      if (token != null && token.isNotEmpty) return token;
+    } catch (e) {
+      debugPrint("SessionService: SecureStorage read error: $e");
+    }
+
+    // Fallback to SharedPreferences
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getString(_prefKey);
+    } catch (e) {
+      debugPrint("SessionService: SharedPreferences read error: $e");
+      return null;
+    }
+  }
+
+  /// Helper to write session token to both secure storage and SharedPreferences
+  static Future<void> _writeLocalToken(String token) async {
+    try {
+      await _secureStorage.write(key: _prefKey, value: token);
+    } catch (e) {
+      debugPrint("SessionService: SecureStorage write error: $e");
+    }
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_prefKey, token);
+    } catch (e) {
+      debugPrint("SessionService: SharedPreferences write error: $e");
+    }
+  }
+
+  /// Helper to delete session token from both storage mediums
+  static Future<void> _deleteLocalToken() async {
+    try {
+      await _secureStorage.delete(key: _prefKey);
+    } catch (e) {
+      debugPrint("SessionService: SecureStorage delete error: $e");
+    }
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_prefKey);
+    } catch (e) {
+      debugPrint("SessionService: SharedPreferences remove error: $e");
+    }
+  }
 
   /// Generates a new UUID v4 token on successful sign-in / OTP verification,
   /// writes it to Firestore under `active_session_token` via a transaction,
-  /// and saves it locally in SharedPreferences.
+  /// and saves it locally in secure storage.
   static Future<void> createSessionOnSignIn(String uid) async {
     try {
       final newToken = const Uuid().v4();
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_prefKey, newToken);
+      await _writeLocalToken(newToken);
 
       final userRef = FirebaseFirestore.instance.collection('users').doc(uid);
       await FirebaseFirestore.instance.runTransaction((tx) async {
@@ -39,9 +98,10 @@ class SessionService {
   }
 
   /// Listens to real-time changes on the current user's document for `active_session_token`.
-  /// If the token changes to a different value, triggers immediate logout flow.
+  /// Implements 3-second debounce and self-healing for aggressive Android ROM restarts.
   static void listenToSession(WidgetRef ref, String uid) {
     _sessionSub?.cancel();
+    _debounceTimer?.cancel();
     _isInvalidating = false;
 
     _sessionSub = FirebaseFirestore.instance
@@ -51,41 +111,97 @@ class SessionService {
         .listen((snap) async {
       if (!snap.exists || _isInvalidating) return;
 
-      final data = snap.data() as Map<String, dynamic>?;
+      final data = snap.data();
       if (data == null) return;
 
       final remoteToken = data['active_session_token'] as String?;
       if (remoteToken == null || remoteToken.isEmpty) return;
 
-      final prefs = await SharedPreferences.getInstance();
-      final localToken = prefs.getString(_prefKey);
+      final localToken = await _readLocalToken();
 
-      // If local token exists and remote token differs -> logged in on another device
-      if (localToken != null && localToken.isNotEmpty && remoteToken != localToken) {
-        debugPrint("SingleDeviceSession: Remote token ($remoteToken) != Local token ($localToken). Invalidating session!");
-        await handleSessionInvalidated(ref);
+      // Case 1: Local token is null or empty.
+      // On aggressive ROMs (Vivo/Infinix), process kills can cause local storage read to return null
+      // while the keystore is reconnecting. DO NOT SIGN OUT.
+      // Self-heal by confirming currentUser UID and resynchronising local storage.
+      if (localToken == null || localToken.isEmpty) {
+        final currentUser = FirebaseAuth.instance.currentUser;
+        if (currentUser != null && currentUser.uid == uid) {
+          debugPrint("SingleDeviceSession: Local token was empty on listener trigger. Self-healing with remote token: $remoteToken");
+          await _writeLocalToken(remoteToken);
+        }
+        return;
+      }
+
+      // Case 2: Remote token differs from local token -> Potential login on another device.
+      // Add a 3-second debounce to handle race conditions during app resume.
+      if (remoteToken != localToken) {
+        debugPrint("SingleDeviceSession: Detected token mismatch (Local: $localToken, Remote: $remoteToken). Debouncing 3s before signout...");
+        _debounceTimer?.cancel();
+        _debounceTimer = Timer(const Duration(seconds: 3), () async {
+          if (_isInvalidating) return;
+
+          // Re-verify after debounce
+          final freshLocal = await _readLocalToken();
+          final freshSnap = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+          final freshRemote = freshSnap.data()?['active_session_token'] as String?;
+
+          if (freshLocal != null && freshRemote != null && freshLocal.isNotEmpty && freshLocal != freshRemote) {
+            debugPrint("SingleDeviceSession: Confirmed token mismatch after 3s debounce. Remote ($freshRemote) != Local ($freshLocal). Invalidating session!");
+            await handleSessionInvalidated(ref);
+          } else {
+            debugPrint("SingleDeviceSession: Debounce resolved or self-healed. Cancellation of signout.");
+          }
+        });
+      } else {
+        // Tokens match -> cancel any pending debounce
+        _debounceTimer?.cancel();
       }
     });
   }
 
   /// App lifecycle resume check: performs a one-time get on the user document
-  /// when returning from background.
+  /// when returning from background and self-heals if needed.
   static Future<void> checkSessionOnResume(WidgetRef ref) async {
     final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser == null || _isInvalidating) return;
 
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final localToken = prefs.getString(_prefKey);
-      if (localToken == null || localToken.isEmpty) return;
-
+      final localToken = await _readLocalToken();
       final snap = await FirebaseFirestore.instance.collection('users').doc(currentUser.uid).get();
       if (!snap.exists) return;
 
       final remoteToken = snap.data()?['active_session_token'] as String?;
+
+      // If local token is null or empty, self-heal with remote token
+      if (localToken == null || localToken.isEmpty) {
+        if (remoteToken != null && remoteToken.isNotEmpty) {
+          debugPrint("SingleDeviceSession: Resume check found empty local token. Self-healing with remote token: $remoteToken");
+          await _writeLocalToken(remoteToken);
+        } else {
+          // Both null: regenerate a new token and update both
+          final newToken = const Uuid().v4();
+          await _writeLocalToken(newToken);
+          await FirebaseFirestore.instance.collection('users').doc(currentUser.uid).update({
+            'active_session_token': newToken,
+          });
+          debugPrint("SingleDeviceSession: Resume check regenerated missing tokens: $newToken");
+        }
+        return;
+      }
+
+      // If both present and mismatch, verify
       if (remoteToken != null && remoteToken.isNotEmpty && remoteToken != localToken) {
-        debugPrint("SingleDeviceSession: Resume check failed. Remote ($remoteToken) != Local ($localToken). Invalidating session!");
-        await handleSessionInvalidated(ref);
+        debugPrint("SingleDeviceSession: Resume check mismatch (Remote: $remoteToken, Local: $localToken). Waiting 3s...");
+        _debounceTimer?.cancel();
+        _debounceTimer = Timer(const Duration(seconds: 3), () async {
+          final freshLocal = await _readLocalToken();
+          final freshSnap = await FirebaseFirestore.instance.collection('users').doc(currentUser.uid).get();
+          final freshRemote = freshSnap.data()?['active_session_token'] as String?;
+          if (freshLocal != null && freshRemote != null && freshLocal.isNotEmpty && freshLocal != freshRemote) {
+            debugPrint("SingleDeviceSession: Confirmed mismatch on resume. Signing out.");
+            await handleSessionInvalidated(ref);
+          }
+        });
       }
     } catch (e) {
       debugPrint("SingleDeviceSession: Error during resume session check: $e");
@@ -99,9 +215,10 @@ class SessionService {
 
     _sessionSub?.cancel();
     _sessionSub = null;
+    _debounceTimer?.cancel();
+    _debounceTimer = null;
 
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_prefKey);
+    await _deleteLocalToken();
 
     try {
       await FirebaseAuth.instance.signOut();
@@ -157,9 +274,10 @@ class SessionService {
   static Future<void> clearSessionOnSignOut(String uid) async {
     _sessionSub?.cancel();
     _sessionSub = null;
+    _debounceTimer?.cancel();
+    _debounceTimer = null;
 
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_prefKey);
+    await _deleteLocalToken();
 
     try {
       await FirebaseFirestore.instance.collection('users').doc(uid).update({
