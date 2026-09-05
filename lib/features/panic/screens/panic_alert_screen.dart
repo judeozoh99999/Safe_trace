@@ -189,9 +189,15 @@ class _PanicAlertScreenState extends ConsumerState<PanicAlertScreen> with Ticker
           _isSendingSms = false;
         });
       } else {
+        // Fallback: OS is restricting background SMS, launch device SMS composer with pre-filled distress message
+        final launched = await SmsService.launchSmsAppFallback(
+          phoneNumbers: phonesToSend,
+          message: message,
+        );
         setState(() {
           for (final phone in trustedPhones) {
-            _smsDeliveryResults[phone] = SmsSendResult.skippedPermissionDenied;
+            _smsDeliveryResults[phone] =
+                launched ? SmsSendResult.sent : SmsSendResult.skippedPermissionDenied;
           }
           _isSendingSms = false;
         });

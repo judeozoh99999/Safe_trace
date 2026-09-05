@@ -169,4 +169,30 @@ class SmsService {
 
     return resultMap;
   }
+
+  /// Launches the device's native SMS application with pre-filled recipients and emergency body.
+  /// Serves as a vital safety fallback if the OS restricts background SMS sending.
+  static Future<bool> launchSmsAppFallback({
+    required List<String> phoneNumbers,
+    required String message,
+  }) async {
+    if (phoneNumbers.isEmpty) return false;
+    try {
+      final separator = Platform.isAndroid ? ';' : ',';
+      final recipients = phoneNumbers.join(separator);
+      final uri = Uri.parse("sms:$recipients?body=${Uri.encodeComponent(message)}");
+      if (await canLaunchUrl(uri)) {
+        return await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        // Fallback for primary contact if multi-recipient is not supported by device SMS intent
+        final singleUri = Uri.parse("sms:${phoneNumbers.first}?body=${Uri.encodeComponent(message)}");
+        if (await canLaunchUrl(singleUri)) {
+          return await launchUrl(singleUri, mode: LaunchMode.externalApplication);
+        }
+      }
+    } catch (e) {
+      debugPrint("Error launching SMS fallback app: $e");
+    }
+    return false;
+  }
 }

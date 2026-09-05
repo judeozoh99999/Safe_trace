@@ -117,6 +117,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
                     setState(() {
                       _hasSmsPermission = res.isGranted;
                     });
+                    if (!res.isGranted) {
+                      _showSmsRestrictedGuide(context);
+                    }
                   }
                 },
                 child: const Text("Grant Permission"),
@@ -126,6 +129,104 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
         );
       }
     }
+  }
+
+  void _showSmsRestrictedGuide(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.security_rounded, color: Color(0xFF4F46E5), size: 28),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Enable SMS Permission',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+              ),
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'If Android is blocking or greying out "Allow", follow these steps to unlock it:',
+                style: TextStyle(fontSize: 14, color: Color(0xFF374151), height: 1.4),
+              ),
+              const SizedBox(height: 14),
+              _buildGuideStep('1', 'Tap "Open App Settings" below to go to SafeTrace settings.'),
+              _buildGuideStep('2', 'Tap the 3 dots (⋮) in the top-right corner of the app settings page.'),
+              _buildGuideStep('3', 'Tap "Allow restricted settings" and verify your PIN or fingerprint.'),
+              _buildGuideStep('4', 'Now open Permissions > SMS and select "Allow".'),
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF3F4F6),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Text(
+                  '💡 Note: If 3 dots are not visible, tap "SMS" first, press back, and the 3 dots will appear.',
+                  style: TextStyle(fontSize: 12, color: Color(0xFF4B5563)),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF4F46E5),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              await openAppSettings();
+            },
+            child: const Text('Open App Settings'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGuideStep(String number, String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            radius: 11,
+            backgroundColor: const Color(0xFFEEF2FF),
+            child: Text(
+              number,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF4F46E5),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(fontSize: 13, color: Color(0xFF374151), height: 1.3),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _checkLocationPermissionsOnLaunch() async {
@@ -810,8 +911,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
             if (!_hasSmsPermission) ...[
               const SizedBox(height: 12),
               GestureDetector(
-                onTap: () async {
-                  await openAppSettings();
+                onTap: () {
+                  _showSmsRestrictedGuide(context);
                 },
                 child: Container(
                   margin: const EdgeInsets.symmetric(horizontal: 24),
